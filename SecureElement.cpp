@@ -470,8 +470,9 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
     const uint8_t *s = p;
     char *msg;
     int len = 0;
+	int input_len = n;
 
-    msg = (char*) malloc ( 2000 * sizeof(char));
+    msg = (char*) malloc ( 100000 * sizeof(char));
 
     if (pf) {
         len += sprintf(msg , "%s" , pf);
@@ -486,7 +487,7 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
         }
     }
     sprintf(msg + len, "\n");
-    ALOGD("SecureElement:%s ==> size = %d data = %s", __func__, len, msg);
+    ALOGD("SecureElement:%s ==> size = %d data = %s", __func__, input_len, msg);
 }
 
 int
