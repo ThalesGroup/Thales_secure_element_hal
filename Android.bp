@@ -1,0 +1,79 @@
+cc_library_shared {
+    // FIXME: this should only be -impl for a passthrough hal.
+    // In most cases, to convert this to a binderized implementation, you should:
+    // - change '-impl' to '-service' here and make it a cc_binary instead of a
+    //   cc_library_shared.
+    // - add a *.rc file for this module.
+    // - delete HIDL_FETCH_I* functions.
+    // - call configureRpcThreadpool and registerAsService on the instance.
+    // You may also want to append '-impl/-service' with a specific identifier like
+    // '-vendor' or '-<hardware identifier>' etc to distinguish it.
+    name: "android.hardware.secure_element@1.0-impl-gto",
+    //relative_install_path: "hw",
+    // FIXME: this should be 'vendor: true' for modules that will eventually be
+    // on AOSP.
+    vendor: true,
+    srcs: [
+        "esehal/src/checksum.c",
+        "esehal/src/iso7816_t1.c",
+        "esehal/src/libse-gto.c",
+        "esehal/src/spi.c",
+        "esehal/src/transport.c",
+        "esehal/src/log.c",
+        "esehal/src/gpio.c",
+        "SecureElement.cpp",
+        "SecureElementHalCallback.cpp",
+    ],
+
+    local_include_dirs: [
+        "esehal/src",
+    ],
+
+    cflags: [
+        "-DANDROID",
+        "-DENABLE_LOGGING=1",
+        "-DENABLE_DEBUG=1",
+        "-DBUILDCFG=1",
+        "-DNXP_EXTNS=TRUE",
+        "-Wno-unused-parameter",
+        "-Wno-unused-private-field",
+        "-Wno-error",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libhardware",
+        "libhidlbase",
+        "libhidltransport",
+        "libhwbinder",
+        "liblog",
+        "libutils",
+        "android.hardware.secure_element@1.0",
+    ],
+
+}
+
+cc_binary {
+    name: "android.hardware.secure_element@1.0-service-gto",
+    relative_install_path: "hw",
+    init_rc: ["android.hardware.secure_element@1.0-service-gto.rc"],
+    vendor: true,
+    defaults: ["hidl_defaults"],
+    srcs: [
+        "GtoService.cpp",
+    ],
+
+    shared_libs: [
+        "android.hardware.secure_element@1.0",
+        "android.hardware.secure_element@1.0-impl-gto",
+        "libbase",
+        "libcutils",
+        "libhardware",
+        "libhidlbase",
+        "libhidltransport",
+        "libhwbinder",
+        "liblog",
+        "libutils",
+    ],
+}
