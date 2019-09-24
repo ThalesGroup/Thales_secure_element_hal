@@ -36,7 +36,6 @@
 #include "se-gto/libse-gto.h"
 #include "libse-gto-private.h"
 #include "spi.h"
-#include "gpio.h"
 
 #define SE_GTO_GTODEV "/dev/gto"
 
@@ -163,8 +162,10 @@ se_gto_reset(struct se_gto_ctx *ctx, void *atr, size_t r)
     int err;
 
     err = isot1_reset(&ctx->t1);
-    if (err < 0)
+    if (err < 0) {
         errno = -err;
+        ctx->check_alive = 1;
+    }
     else {
         err = isot1_get_atr(&ctx->t1, atr, r);
         if (err < 0)
@@ -188,12 +189,14 @@ se_gto_apdu_transmit(struct se_gto_ctx *ctx, const void *apdu, int n, void *resp
     if (r < 0) {
         errno = -r;
         err("failed to read APDU response, %s\n", strerror(-r));
-        return -1;
     } else if (r < 2) {
         err("APDU response too short, only %d bytes, needs 2 at least\n", r);
-        return -1;
     }
-    return r;
+    if (r < 2){
+        ctx->check_alive = 1;
+        return -1;
+    } else
+        return r;
 }
 
 SE_GTO_EXPORT int
@@ -205,33 +208,43 @@ se_gto_open(struct se_gto_ctx *ctx)
         err("failed to set up se-gto.\n");
         return -1;
     }
+
+    ctx->check_alive = 0;
+
     isot1_bind(&ctx->t1, 0x2, 0x1);
 
     dbg("fd: spi=%d\n", ctx->t1.spi_fd);
     return 0;
 }
 
+int gtoSPI_checkAlive(struct se_gto_ctx *ctx);
+int gtoSPI_checkAlive(struct se_gto_ctx *ctx)
+{
+  int ret = 0;
+  unsigned char apdu[5]= {0x80,0xCA,0x9F,0x7F,0x2D};
+  unsigned char resp[258] = {0,};
+
+  /*Check Alive implem*/
+  ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
+  if(ret < 0){
+    return -1;
+  }
+
+  return 0;
+}
+
 SE_GTO_EXPORT int
 se_gto_close(struct se_gto_ctx *ctx)
 {
+    int status = 0;
+
+    dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
+    if (ctx->check_alive == 1)
+        if (gtoSPI_checkAlive(ctx) != 0) status = 0xDEAD;
+
     (void)isot1_release(&ctx->t1);
     (void)spi_teardown(ctx);
     log_teardown(ctx);
-    return 0;
-}
-
-SE_GTO_EXPORT int
-se_gto_power_on(struct se_gto_ctx *ctx)
-{
-    info("eSE GTO: se_gto_power_on\n");
-
-    return gpio_set_power_on(ctx);
-}
-
-SE_GTO_EXPORT int
-se_gto_power_off(struct se_gto_ctx *ctx)
-{
-    info("eSE GTO: se_gto_power_off\n");
-
-    return gpio_set_power_off(ctx);
+    free(ctx);
+    return status;
 }

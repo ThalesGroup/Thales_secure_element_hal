@@ -36,6 +36,8 @@
 #define NSEC_PER_SEC  1000000000L
 #define NSEC_PER_MSEC 1000000L
 
+#define ESE_NAD 0x21
+
 /* < 0 if t1 < t2,
  * > 0 if t1 > t2,
  *   0 if t1 == t2.
@@ -138,7 +140,7 @@ block_recv(struct t1_state *t1, void *block, size_t n)
 
         if (ts_compare(&ts, &ts_timeout) >= 0)
             return -ETIMEDOUT;
-    } while (!c);
+    } while (c != ESE_NAD);
 
     s[i++] = c;
 
@@ -162,5 +164,5 @@ block_recv(struct t1_state *t1, void *block, size_t n)
             return len;
     }
 
-    return max;
+    return max + 1;
 }

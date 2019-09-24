@@ -45,7 +45,9 @@
 
 #define MAX_RETRIES 3
 
-#define MAX_WTX_ROUNDS 200
+#define MAX_WTX_ROUNDS 100
+
+#define WTX_MAX_VALUE 1
 
 static void
 t1_init_recv_window(struct t1_state *t1, void *buf, size_t n)
@@ -231,6 +233,7 @@ parse_iblock(struct t1_state *t1, uint8_t *buf)
     if (t1->recv.next == next) {
         t1->recv.next ^= 1;
         t1_recv_window_append(t1, buf + 3, buf[2]);
+        t1->recv_size += buf[2];
     }
 
     /* 1 if more to come */
@@ -246,10 +249,14 @@ parse_rblock(struct t1_state *t1, uint8_t *buf)
 
     switch (pcb & 0x2F) {
         case 0:
-            t1->retries = MAX_RETRIES;
-            if ((t1->send.next ^ next) != 0)
+            if ((t1->send.next ^ next) != 0) {
                 /* Acknowledge previous block */
+                t1->retries = MAX_RETRIES;
                 ack_iblock(t1);
+            } else {
+                t1->retries--;
+                if (t1->retries <= 0) r = -ETIMEDOUT;
+            }
             break;
 
         case 1:
@@ -262,6 +269,13 @@ parse_rblock(struct t1_state *t1, uint8_t *buf)
         case 2:
             /* Error */
             t1->state.halt = 1; r = -EIO;
+            break;
+
+        case 3:
+            t1->retries--;
+            r = -EREMOTEIO;
+            t1->state.request = 1;
+            t1->request       = T1_REQUEST_RESYNC;
             break;
 
         default:
@@ -308,6 +322,9 @@ parse_request(struct t1_state *t1, uint8_t *buf)
                 break;
             } else if (buf[2] == 1) {
                 t1->wtx = buf[3];
+                if (t1->wtx_max_value)
+                    if (t1->wtx > WTX_MAX_VALUE)
+                        t1->wtx = WTX_MAX_VALUE;
                 if (t1->wtx_max_rounds) {
                     t1->wtx_rounds--;
                     if (t1->wtx_rounds <= 0) {
@@ -380,6 +397,7 @@ parse_response(struct t1_state *t1, uint8_t *buf)
             r = 1;
             switch (pcb) {
                 case T1_REQUEST_IFS:
+				    t1->need_ifsd_sync = 0;
                     if ((buf[2] != 1) && (buf[3] != t1->ifsd))
                         r = -EBADMSG;
                     break;
@@ -394,9 +412,13 @@ parse_response(struct t1_state *t1, uint8_t *buf)
                     } else
                         r = -EBADMSG;
                     break;
-
-                case T1_REQUEST_ABORT:
                 case T1_REQUEST_RESYNC:
+                    t1->need_resync = 0;
+                    t1->send.next = 0;
+                    t1->recv.next = 0;
+                    break;
+                case T1_REQUEST_ABORT:
+
                 default:
                     /* We never emitted those requests */
                     r = -EBADMSG;
@@ -455,7 +477,14 @@ t1_loop(struct t1_state *t1)
     if (t1->need_reset) {
         t1->state.request = 1;
         t1->request       = T1_REQUEST_RESET;
-    }
+    } else if (t1->need_resync) {
+        t1->state.request = 1;
+        t1->request       = T1_REQUEST_RESYNC;
+    }else if(t1->need_ifsd_sync){
+		t1->state.request = 1;
+        t1->request = T1_REQUEST_IFS;
+        t1->ifsd    = 254;
+	}
 
     while (!t1->state.halt && t1->retries) {
         if (t1->state.request)
@@ -545,6 +574,12 @@ t1_loop(struct t1_state *t1)
                         if (t1_recv_window_free_size(t1) == 0)
                             t1->state.halt = 1, n = 0;
                         t1->retries = MAX_RETRIES;
+						if(t1->request       == T1_REQUEST_RESET) {
+							t1->state.request = 1;
+                            t1->request = T1_REQUEST_IFS;
+                            t1->ifsd    = 254;
+							t1->need_ifsd_sync = 1;
+						}
                         continue;
 
                     default: /* Negative return is error */
@@ -565,6 +600,12 @@ t1_loop(struct t1_state *t1)
                     n = parse_iblock(t1, t1->buf);
                     if (t1->state.aborted)
                         continue;
+                    if (t1->recv_size > t1->recv_max) {
+                        /* Too much data received */
+                        n = -EMSGSIZE;
+                        t1->state.halt = 1;
+                        continue;
+                    }
                     if ((n == 0) && (t1_send_window_size(t1) == 0))
                         t1->state.halt = 1;
                     t1->wtx_rounds = t1->wtx_max_rounds;
@@ -608,6 +649,8 @@ t1_clear_states(struct t1_state *t1)
     t1->send.start = t1->send.end = NULL;
     t1->recv.start = t1->recv.end = NULL;
     t1->recv.size  = 0;
+
+    t1->recv_size = 0;  /* Also count discarded bytes */
 }
 
 static void
@@ -624,9 +667,14 @@ t1_init(struct t1_state *t1)
     t1->recv.next = 0;
 
     t1->need_reset = 1;
+    t1->need_resync = 0;
     t1->spi_fd     = -1;
 
     t1->wtx_max_rounds = MAX_WTX_ROUNDS;
+    t1->wtx_max_value  = 1;
+
+    t1->recv_max  = 65536 + 2; /* Maximum for extended APDU response */
+    t1->recv_size = 0;
 }
 
 static void
@@ -646,10 +694,13 @@ t1_bind(struct t1_state *t1, int src, int dst)
 }
 
 static int
+t1_reset(struct t1_state *t1);
+
+static int
 t1_transceive(struct t1_state *t1, const void *snd_buf,
               size_t snd_len, void *rcv_buf, size_t rcv_len)
 {
-    int n;
+    int n, r;
 
     t1_clear_states(t1);
 
@@ -660,6 +711,14 @@ t1_transceive(struct t1_state *t1, const void *snd_buf,
     if (n == 0)
         /* Received APDU response */
         n = (int)t1_recv_window_size(t1);
+    else if (n < 0  && t1->state.aborted != 1){
+        if (!(t1->state.request == 1 && t1->request == T1_REQUEST_RESET))
+        {
+            /*Request Soft RESET to the secure element*/
+            r = t1_reset(t1);
+            if (r < 0) n = 0xDEAD; /*Fatal error meaning eSE is not responding to reset*/
+        }
+    }
     return n;
 }
 
@@ -679,6 +738,15 @@ t1_reset(struct t1_state *t1)
 {
     t1_clear_states(t1);
     t1->need_reset = 1;
+
+    return t1_loop(t1);
+}
+
+static int
+t1_resync(struct t1_state *t1)
+{
+    t1_clear_states(t1);
+    t1->need_resync = 1;
 
     return t1_loop(t1);
 }
@@ -718,6 +786,12 @@ int
 isot1_reset(struct t1_state *t1)
 {
     return t1_reset(t1);
+}
+
+int
+isot1_resync(struct t1_state *t1)
+{
+    return t1_resync(t1);
 }
 
 int

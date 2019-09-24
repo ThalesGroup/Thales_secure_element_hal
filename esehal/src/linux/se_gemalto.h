@@ -28,6 +28,7 @@
 /* Read / Write of power configuration (GTO_POWER_ON, GTO_POWER_OFF) */
 #define GTO_IOC_RD_POWER        _IOR(GTO_IOC_MAGIC, 1, __s32)
 #define GTO_IOC_WR_POWER        _IOW(GTO_IOC_MAGIC, 1, __s32)
+#define GTO_IOC_WR_RESET        _IOW(GTO_IOC_MAGIC, 2, __s32)
 
 /* Read / Write of clock speed configuration */
 #define GTO_IOC_RD_CLK_SPEED    _IOR(GTO_IOC_MAGIC, 2, __s32)

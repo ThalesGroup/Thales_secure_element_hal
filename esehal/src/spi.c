@@ -32,15 +32,37 @@
 #include "libse-gto-private.h"
 #include "spi.h"
 
+#define USE_OPEN_RETRY
+#define MAX_RETRY_CNT 10
+
 int
 spi_setup(struct se_gto_ctx *ctx)
 {
+#ifdef USE_OPEN_RETRY
+    int retryCnt = 0;
+
+retry:
     ctx->t1.spi_fd = open(ctx->gtodev, O_RDWR);
     if (ctx->t1.spi_fd < 0) {
-        err("cannot use %s for spi device\n", ctx->gtodev);
+        err("cannot use %s for spi device, errno = 0x%x\n", ctx->gtodev, errno);
+        if(errno == -EBUSY || errno == EBUSY) {
+            retryCnt++;
+            err("Retry open driver - retry cnt : %d\n", retryCnt);
+            if(retryCnt < MAX_RETRY_CNT) {
+                sleep(1);
+                goto retry;
+            }
+        }
         return -1;
-    }
-    return ctx->t1.spi_fd < 0;
+      }
+#else
+     ctx->t1.spi_fd = open(ctx->gtodev, O_RDWR);
+     if (ctx->t1.spi_fd < 0) {
+         err("cannot use %s for spi device\n", ctx->gtodev);
+         return -1;
+     }
+#endif
+     return ctx->t1.spi_fd < 0;
 }
 
 int

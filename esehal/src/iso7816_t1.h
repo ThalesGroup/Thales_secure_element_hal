@@ -52,8 +52,11 @@ struct t1_state {
 
     int wtx_rounds;     /* Limit number of WTX round from card    */
     int wtx_max_rounds; /* Maximum number of WTX rounds from card */
+    int wtx_max_value;  /* Maximum value of WTX supported by host */
 
     uint8_t need_reset; /* Need to send a reset on first start            */
+    uint8_t need_resync; /* Need to send a reset on first start            */
+	uint8_t need_ifsd_sync; /* Need to send a IFSD request after RESET            */
     uint8_t atr[32];    /* ISO7816 defines ATR with a maximum of 32 bytes */
     uint8_t atr_length; /* Never over 32                                  */
 
@@ -71,6 +74,9 @@ struct t1_state {
         uint8_t  next; /* N(R) */
         size_t   size; /* Maximum window size */
     } recv;
+
+    size_t recv_max;  /* Maximum number of expected bytes on reception */
+    size_t recv_size; /* Received number of bytes so far */
 
     /* Max size is:
      *  - 3 bytes header,
@@ -91,6 +97,7 @@ int isot1_transceive(struct t1_state *t1, const void *snd_buf,
                      size_t snd_len, void *rcv_buf, size_t rcv_len);
 int isot1_negotiate_ifsd(struct t1_state *t1, int ifsd);
 int isot1_reset(struct t1_state *t1);
+int isot1_resync(struct t1_state *t1);
 int isot1_get_atr(struct t1_state *t1, void *atr, size_t n);
 
 /* for check.c */

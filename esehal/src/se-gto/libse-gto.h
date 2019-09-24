@@ -186,15 +186,6 @@ int se_gto_reset(struct se_gto_ctx *ctx, void *atr, size_t r);
  */
 int se_gto_apdu_transmit(struct se_gto_ctx *ctx, const void *apdu, int n, void *resp, int r);
 
-/** Notify Power ON needed using GPIO
- */
-int se_gto_power_on(struct se_gto_ctx *ctx);
-
-/** Notify Power OFF needed using GPIO
- */
-int se_gto_power_off(struct se_gto_ctx *ctx);
-
-
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
