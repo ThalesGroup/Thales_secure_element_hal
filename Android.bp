@@ -20,7 +20,6 @@ cc_library_shared {
         "esehal/src/spi.c",
         "esehal/src/transport.c",
         "esehal/src/log.c",
-        "esehal/src/gpio.c",
         "SecureElement.cpp",
         "SecureElementHalCallback.cpp",
     ],
