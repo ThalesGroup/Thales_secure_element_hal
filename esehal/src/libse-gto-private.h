@@ -49,6 +49,8 @@ struct se_gto_ctx {
     int   spi_nbuffer;
 
     struct t1_state t1;
+
+    uint8_t check_alive;
 };
 
 #include "log.h"
