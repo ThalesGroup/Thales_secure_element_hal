@@ -245,6 +245,6 @@ se_gto_close(struct se_gto_ctx *ctx)
     (void)isot1_release(&ctx->t1);
     (void)spi_teardown(ctx);
     log_teardown(ctx);
-    free(ctx);
+    if (ctx) free(ctx);
     return status;
 }

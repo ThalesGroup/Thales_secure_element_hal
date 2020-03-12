@@ -51,6 +51,7 @@ static struct se_gto_ctx *ctx;
 
 SecureElement::SecureElement(){
     nbrOpenChannel = 0;
+	ctx = NULL;
 }
 
 void SecureElement::resetSE(){
@@ -473,6 +474,11 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
 	int input_len = n;
 
     msg = (char*) malloc ( 100000 * sizeof(char));
+	if (!msg) {
+		errno = ENOMEM;
+		return -1;
+    }
+
 
     if (pf) {
         len += sprintf(msg , "%s" , pf);
@@ -488,6 +494,8 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
     }
     sprintf(msg + len, "\n");
     ALOGD("SecureElement:%s ==> size = %d data = %s", __func__, input_len, msg);
+
+	free(msg);
 }
 
 int
@@ -611,6 +619,7 @@ SecureElement::deinitializeSE() {
         if (se_gto_close(ctx) < 0) {
             mSecureElementStatus = SecureElementStatus::FAILED;
         } else {
+			ctx = NULL;
             mSecureElementStatus = SecureElementStatus::SUCCESS;
             isBasicChannelOpen = false;
             nbrOpenChannel = 0;
