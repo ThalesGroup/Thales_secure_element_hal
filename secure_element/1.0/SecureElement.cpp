@@ -51,7 +51,7 @@ static struct se_gto_ctx *ctx;
 
 SecureElement::SecureElement(){
     nbrOpenChannel = 0;
-	ctx = NULL;
+    ctx = NULL;
 }
 
 void SecureElement::resetSE(){
@@ -136,6 +136,7 @@ Return<void> SecureElement::init(const sp<::android::hardware::secure_element::V
 
 Return<void> SecureElement::getAtr(getAtr_cb _hidl_cb) {
     hidl_vec<uint8_t> response;
+    response.resize(atr_size);
     memcpy(&response[0], atr, atr_size);
     _hidl_cb(response);
     return Void();
@@ -179,8 +180,8 @@ Return<void> SecureElement::transmit(const hidl_vec<uint8_t>& data, transmit_cb 
         ALOGE("SecureElement:%s: transmit failed! No channel is open", __func__);
     }
     _hidl_cb(result);
-    free(apdu);
-    free(resp);
+    if(apdu) free(apdu);
+    if(resp) free(resp);
     return Void();
 }
 
@@ -235,8 +236,8 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
         }
         mSecureElementStatus = SecureElementStatus::IOERROR;
         ALOGD("SecureElement:%s Free memory after manage channel after ERROR", __func__);
-        free(apdu);
-        free(resp);
+        if(apdu) free(apdu);
+        if(resp) free(resp);
         _hidl_cb(resApduBuff, mSecureElementStatus);
         return Void();
     } else if (resp[resp_len - 2] == 0x90 && resp[resp_len - 1] == 0x00) {
@@ -252,14 +253,14 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
             mSecureElementStatus = SecureElementStatus::IOERROR;
         }
         ALOGD("SecureElement:%s Free memory after manage channel after ERROR", __func__);
-        free(apdu);
-        free(resp);
+        if(apdu) free(apdu);
+        if(resp) free(resp);
         _hidl_cb(resApduBuff, mSecureElementStatus);
         return Void();
     }
 
-    free(apdu);
-    free(resp);
+    if(apdu) free(apdu);
+    if(resp) free(resp);
     ALOGD("SecureElement:%s Free memory after manage channel", __func__);
     ALOGD("SecureElement:%s mSecureElementStatus = %d", __func__, (int)mSecureElementStatus);
 
@@ -327,8 +328,8 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
     _hidl_cb(resApduBuff, mSecureElementStatus);
 
     ALOGD("SecureElement:%s Free memory after selectApdu", __func__);
-    free(apdu);
-    free(resp);
+    if(apdu) free(apdu);
+    if(resp) free(resp);
     return Void();
 }
 
@@ -403,8 +404,8 @@ Return<void> SecureElement::openBasicChannel(const hidl_vec<uint8_t>& aid, uint8
     _hidl_cb(result, mSecureElementStatus);
 
     ALOGD("SecureElement:%s Free memory after openBasicChannel", __func__);
-    free(apdu);
-    free(resp);
+    if(apdu) free(apdu);
+    if(resp) free(resp);
     return Void();
 }
 
@@ -451,8 +452,8 @@ Return<::android::hardware::secure_element::V1_0::SecureElementStatus> SecureEle
         } else {
             mSecureElementStatus = SecureElementStatus::FAILED;
         }
-        free(apdu);
-        free(resp);
+        if(apdu) free(apdu);
+        if(resp) free(resp);
     }
 
     if (nbrOpenChannel == 0 && isBasicChannelOpen == false) {
@@ -471,31 +472,31 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
     const uint8_t *s = p;
     char *msg;
     int len = 0;
-	int input_len = n;
+    int input_len = n;
 
-    msg = (char*) malloc ( 100000 * sizeof(char));
-	if (!msg) {
-		errno = ENOMEM;
-		return -1;
+
+    msg = (char*) malloc ( input_len * 3 * sizeof(char));
+    if(!msg) {
+        errno = ENOMEM;
+        return;
     }
-
 
     if (pf) {
         len += sprintf(msg , "%s" , pf);
         //len = len + 8;
     }
-    while (n--) {
+    while (input_len--) {
         len += sprintf(msg + len, "%02X" , *s++);
         //len = len + 2;
-        if (n && sep) {
+        if (input_len && sep) {
             len += sprintf(msg + len, ":");
             //len++;
         }
     }
     sprintf(msg + len, "\n");
-    ALOGD("SecureElement:%s ==> size = %d data = %s", __func__, input_len, msg);
+    ALOGD("SecureElement:%s ==> size = %d data = %s", __func__, n, msg);
 
-	free(msg);
+    if(msg) free(msg);
 }
 
 int
@@ -619,12 +620,13 @@ SecureElement::deinitializeSE() {
         if (se_gto_close(ctx) < 0) {
             mSecureElementStatus = SecureElementStatus::FAILED;
         } else {
-			ctx = NULL;
+            ctx = NULL;
             mSecureElementStatus = SecureElementStatus::SUCCESS;
             isBasicChannelOpen = false;
             nbrOpenChannel = 0;
         }
         checkSeUp = false;
+        turnOffSE = false;
     }else{
         ALOGD("SecureElement:%s No need to deinitialize SE", __func__);
         mSecureElementStatus = SecureElementStatus::SUCCESS;

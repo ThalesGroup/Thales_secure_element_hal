@@ -238,13 +238,13 @@ se_gto_close(struct se_gto_ctx *ctx)
 {
     int status = 0;
 
-    dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
+    if(ctx) dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
     if (ctx->check_alive == 1)
         if (gtoSPI_checkAlive(ctx) != 0) status = 0xDEAD;
 
     (void)isot1_release(&ctx->t1);
     (void)spi_teardown(ctx);
     log_teardown(ctx);
-    if (ctx) free(ctx);
+    if(ctx) free(ctx);
     return status;
 }

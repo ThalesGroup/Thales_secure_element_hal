@@ -10,15 +10,15 @@
  * See the License for the specific language governing permissions and limitations under the License.
 
  ****************************************************************************/
-#include <android/hardware/secure_element/1.0/ISecureElement.h>
+#include <android/hardware/secure_element/1.1/ISecureElement.h>
 #include <hidl/LegacySupport.h>
 #include <log/log.h>
 
 #include "SecureElement.h"
 
 // Generated HIDL files
-using android::hardware::secure_element::V1_0::ISecureElement;
-using android::hardware::secure_element::V1_0::implementation::SecureElement;
+using android::hardware::secure_element::V1_1::ISecureElement;
+using android::hardware::secure_element::V1_1::implementation::SecureElement;
 using android::hardware::configureRpcThreadpool;
 using android::hardware::joinRpcThreadpool;
 using android::OK;
@@ -26,7 +26,8 @@ using android::sp;
 using android::status_t;
 
 int main() {
-  ALOGD("Gemalto Secure Element HAL Service 1.0.5 is starting. libse-gto v1.11");
+  ALOGD("android::hardware::secure_element::V1_1 is starting.");
+  ALOGD("Thales Secure Element HAL Service Release 1.1.0 ==> libse-gto v1.11");
   sp<ISecureElement> se_service = new SecureElement();
   configureRpcThreadpool(1, true);
   status_t status = se_service->registerAsService("eSE1");
@@ -37,7 +38,7 @@ int main() {
     return -1;
   }
   
-  ALOGD("Gemalto Secure Element Service is ready");
+  ALOGD("Thales Secure Element Service is ready");
   joinRpcThreadpool();
   return 1;
 }
