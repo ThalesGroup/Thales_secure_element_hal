@@ -677,22 +677,19 @@ SecureElement::deinitializeSE() {
 Return<::android::hardware::secure_element::V1_0::SecureElementStatus>
 SecureElement::reset() {
 
-  SecureElementStatus status = SecureElementStatus::FAILED;
+    SecureElementStatus status = SecureElementStatus::FAILED;
 
-  ALOGD("SecureElement:%s start", __func__);
-  if (turnOffSE) {
-    
-
+    ALOGD("SecureElement:%s start", __func__);
     if (deinitializeSE() != SecureElementStatus::SUCCESS) {
         ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
     }
     if(initializeSE() == EXIT_SUCCESS) {
         status = SecureElementStatus::SUCCESS;
     }
-  }
-  ALOGD("SecureElement:%s end", __func__);
+	
+    ALOGD("SecureElement:%s end", __func__);
 
-  return status;
+    return status;
 }
 
 // Methods from ::android::hidl::base::V1_0::IBase follow.
