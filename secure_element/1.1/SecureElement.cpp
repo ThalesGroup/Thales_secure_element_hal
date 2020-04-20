@@ -506,8 +506,7 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
     int len = 0;
     int input_len = n;
 
-
-    msg = (char*) malloc ( input_len * 3 * sizeof(char));
+    msg = (char*) malloc ( (pf ? strlen(pf) : 0) + input_len * 3 + 1);
     if(!msg) {
         errno = ENOMEM;
         return;
