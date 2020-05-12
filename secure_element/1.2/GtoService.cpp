@@ -27,7 +27,7 @@ using android::status_t;
 
 int main() {
   ALOGD("android::hardware::secure_element::V1_2 is starting.");
-  ALOGD("Thales Secure Element HAL Service Release 1.2.2 ==> libse-gto v1.11");
+  ALOGD("Thales Secure Element HAL Service Release 1.2.3 ==> libse-gto v1.12");
   sp<ISecureElement> se_service = new SecureElement("/vendor/etc/libse-gto-hal.conf");
   sp<ISecureElement> se_service2 = new SecureElement("/vendor/etc/libse-gto-hal2.conf");
   configureRpcThreadpool(1, true);

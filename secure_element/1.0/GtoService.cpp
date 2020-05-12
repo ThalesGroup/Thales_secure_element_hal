@@ -26,7 +26,7 @@ using android::sp;
 using android::status_t;
 
 int main() {
-  ALOGD("Gemalto Secure Element HAL Service 1.0.1 is starting. libse-gto v1.11");
+  ALOGD("Gemalto Secure Element HAL Service 1.0.2 is starting. libse-gto v1.12");
   sp<ISecureElement> se_service = new SecureElement();
   configureRpcThreadpool(1, true);
   status_t status = se_service->registerAsService("eSE1");
