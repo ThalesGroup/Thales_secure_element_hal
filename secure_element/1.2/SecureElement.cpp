@@ -619,12 +619,14 @@ SecureElement::openConfigFile(int verbose)
     f = fopen(filename, "r");
     if (f) {
         r = parseConfigFile(f, verbose);
-        if (r == -1)
+        if (r == -1) {
             perror(filename);
             ALOGE("SecureElement:%s Error parse %s Failed", __func__, filename);
-        if (fclose(f) != 0)
+		}
+        if (fclose(f) != 0) {
             r = -1;
             ALOGE("SecureElement:%s Error close %s Failed", __func__, filename);
+		}
     } else {
         r = -1;
         ALOGE("SecureElement:%s Error open %s Failed", __func__, filename);
