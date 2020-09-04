@@ -45,7 +45,7 @@
 
 #define MAX_RETRIES 3
 
-#define MAX_WTX_ROUNDS 100
+#define MAX_WTX_ROUNDS 200
 
 #define WTX_MAX_VALUE 1
 
