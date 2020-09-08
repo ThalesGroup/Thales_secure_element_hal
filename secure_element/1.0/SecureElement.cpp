@@ -627,6 +627,9 @@ SecureElement::deinitializeSE() {
             nbrOpenChannel = 0;
         }
         checkSeUp = false;
+
+        internalClientCallback->onStateChange(false);
+
         turnOffSE = false;
     }else{
         ALOGD("SecureElement:%s No need to deinitialize SE", __func__);

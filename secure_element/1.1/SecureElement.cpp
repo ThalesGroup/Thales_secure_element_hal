@@ -665,6 +665,10 @@ SecureElement::deinitializeSE() {
         }
         checkSeUp = false;
         turnOffSE = false;
+
+        if(internalClientCallback_v1_1 != nullptr) internalClientCallback_v1_1->onStateChange_1_1(false, "SE denitialized");
+        else internalClientCallback->onStateChange(false);
+
     }else{
         ALOGD("SecureElement:%s No need to deinitialize SE", __func__);
         mSecureElementStatus = SecureElementStatus::SUCCESS;
