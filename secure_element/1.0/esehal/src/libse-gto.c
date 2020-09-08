@@ -32,6 +32,7 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <log/log.h>
+#include <sys/ioctl.h>
 
 #include "se-gto/libse-gto.h"
 #include "libse-gto-private.h"
@@ -217,17 +218,48 @@ se_gto_open(struct se_gto_ctx *ctx)
     return 0;
 }
 
+#define ST21NFC_MAGIC         0xEA
+#define ST21NFC_PULSE_RESET           _IOR(ST21NFC_MAGIC, 0x02, unsigned int)
+#define FD "/dev/st21nfc"
+
+int se_gto_Spi_Reset()
+{
+    int fd = -1;
+    uint32_t io_code;
+
+    printf("Send hardware reset\n");
+    fd = open(FD, O_RDWR);
+    if (fd < 0) {
+        perror("unable to open fd\n");
+        return -1;
+    }
+
+    io_code = ST21NFC_PULSE_RESET;
+    if (-1 == ioctl (fd, io_code, NULL)) {
+        perror("unable to reset\n");
+        close(fd);
+        return -1;
+    }
+    return 0;
+}
+
 int gtoSPI_checkAlive(struct se_gto_ctx *ctx);
 int gtoSPI_checkAlive(struct se_gto_ctx *ctx)
 {
   int ret = 0;
+  int count = 3;
   unsigned char apdu[5]= {0x80,0xCA,0x9F,0x7F,0x2D};
   unsigned char resp[258] = {0,};
 
+recheck:
   /*Check Alive implem*/
   ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
   if(ret < 0){
-    return -1;
+    if (count == 0) return -1;
+    count--;
+    /*Run SPI reset*/
+    se_gto_Spi_Reset();
+    goto recheck;
   }
 
   return 0;
