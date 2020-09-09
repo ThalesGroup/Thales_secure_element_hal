@@ -666,8 +666,6 @@ SecureElement::deinitializeSE() {
             nbrOpenChannel = 0;
         }
         checkSeUp = false;
-        if(internalClientCallback_v1_1 != nullptr) internalClientCallback_v1_1->onStateChange_1_1(false, "SE denitialized");
-        else internalClientCallback->onStateChange(false);
         turnOffSE = false;
     }else{
         ALOGD("SecureElement:%s No need to deinitialize SE", __func__);
@@ -687,6 +685,10 @@ SecureElement::reset() {
     if (deinitializeSE() != SecureElementStatus::SUCCESS) {
         ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
     }
+
+    if(internalClientCallback_v1_1 != nullptr) internalClientCallback_v1_1->onStateChange_1_1(false, "SE denitialized");
+    else internalClientCallback->onStateChange(false);
+
     if(initializeSE() == EXIT_SUCCESS) {
         status = SecureElementStatus::SUCCESS;
     }
