@@ -33,8 +33,10 @@ lrc8(const void *s, size_t n)
     uint8_t        c = 0;
 
     if (p)
-        while (n--)
+        while (n) {
             c ^= *p++;
+            n--;
+        }
     return c;
 }
 
