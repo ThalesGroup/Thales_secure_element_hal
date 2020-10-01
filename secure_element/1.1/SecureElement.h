@@ -63,7 +63,7 @@ struct SecureElement : public ISecureElement , public hidl_death_recipient {
     static int run_apdu(struct se_gto_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose);
     static int toint(char c);
     static void dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FILE *out);
-    void resetSE();
+    int resetSE();
     int openConfigFile(int verbose);
     int parseConfigFile(FILE *f, int verbose);
     

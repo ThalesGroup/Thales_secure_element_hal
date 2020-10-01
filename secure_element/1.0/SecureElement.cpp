@@ -54,7 +54,7 @@ SecureElement::SecureElement(){
     ctx = NULL;
 }
 
-void SecureElement::resetSE(){
+int SecureElement::resetSE(){
     int n;
 
     isBasicChannelOpen = false;
@@ -69,6 +69,8 @@ void SecureElement::resetSE(){
     } else {
         ALOGE("SecureElement:%s Failed to reset and get ATR: %s\n", __func__, strerror(errno));
     }
+
+    return n;
 }
 
 sp<V1_0::ISecureElementHalCallback> SecureElement::internalClientCallback = nullptr;
@@ -94,7 +96,9 @@ int SecureElement::initializeSE() {
         return EXIT_FAILURE;
     }
 
-    resetSE();
+    if (resetSE() < 0) {
+        return EXIT_FAILURE;
+    }
 
     checkSeUp = true;
     turnOffSE = false;
@@ -123,7 +127,6 @@ Return<void> SecureElement::init(const sp<::android::hardware::secure_element::V
     if (initializeSE() != EXIT_SUCCESS) {
         ALOGE("SecureElement:%s initializeSE Failed", __func__);
         clientCallback->onStateChange(false);
-        return Void();
     }
 
     if (deinitializeSE() != SecureElementStatus::SUCCESS) {
