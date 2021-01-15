@@ -240,6 +240,7 @@ int se_gto_Spi_Reset()
         close(fd);
         return -1;
     }
+	close(fd);
     return 0;
 }
 
