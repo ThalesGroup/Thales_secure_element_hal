@@ -52,7 +52,6 @@ struct SecureElement : public ISecureElement , public hidl_death_recipient {
     uint8_t nbrOpenChannel = 0;
     bool isBasicChannelOpen = false;
     bool checkSeUp = false;
-    bool turnOffSE = true;
     uint8_t atr[32];
     uint8_t atr_size;
     static sp<V1_0::ISecureElementHalCallback> internalClientCallback;
@@ -66,8 +65,6 @@ struct SecureElement : public ISecureElement , public hidl_death_recipient {
     int resetSE();
     int openConfigFile(int verbose);
     int parseConfigFile(FILE *f, int verbose);
-    
-
 };
 
 
