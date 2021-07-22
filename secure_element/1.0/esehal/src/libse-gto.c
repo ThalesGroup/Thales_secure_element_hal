@@ -218,29 +218,11 @@ se_gto_open(struct se_gto_ctx *ctx)
     return 0;
 }
 
-#define ST21NFC_MAGIC         0xEA
-#define ST21NFC_PULSE_RESET           _IOR(ST21NFC_MAGIC, 0x02, unsigned int)
-#define FD "/dev/st21nfc"
-
 int se_gto_Spi_Reset()
 {
-    int fd = -1;
-    uint32_t io_code;
-
-    printf("Send hardware reset\n");
-    fd = open(FD, O_RDWR);
-    if (fd < 0) {
-        perror("unable to open fd\n");
-        return -1;
-    }
-
-    io_code = ST21NFC_PULSE_RESET;
-    if (-1 == ioctl (fd, io_code, NULL)) {
-        perror("unable to reset\n");
-        close(fd);
-        return -1;
-    }
-	close(fd);
+    /**
+	* @Todo: Add proprietary SPI Reset code here
+	**/
     return 0;
 }
 
