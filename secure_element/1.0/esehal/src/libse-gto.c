@@ -248,6 +248,77 @@ recheck:
   return 0;
 }
 
+void dump_bytes(struct se_gto_ctx *ctx, char sep, const uint8_t *p, int n)
+{
+    const uint8_t *s = p;
+    char *msg;
+    int len = 0;
+    int input_len = n;
+
+    msg = (char*) malloc (input_len * 3 + 1);
+    if(!msg) {
+        errno = ENOMEM;
+        return;
+    }
+
+    while (input_len--) {
+        len += sprintf(msg + len, "%02X" , *s++);
+        //len = len + 2;
+        if (input_len && sep) {
+            len += sprintf(msg + len, ":");
+            //len++;
+        }
+    }
+    sprintf(msg + len, "\n");
+    dbg("data = %s", msg);
+
+    if(msg) free(msg);
+}
+
+int gtoSPI_getSeVersion(struct se_gto_ctx *ctx)
+{
+  int r = 0;
+  int count = 3;
+  unsigned char select_aid_apdu[14]= {0x00,0xA4,0x04,0x00,0x08,0xA0,0x00,0x00,0x01,0x51,0x00,0x00,0x00,0x00};
+  unsigned char get_cplc_apdu[5]= {0x80,0xCA,0x9F,0x7F,0x00};
+  unsigned char get_fe_apdu[5]= {0x80,0xCA,0x00,0xFE,0x00};
+  unsigned char resp[258] = {0,};
+
+  r = se_gto_apdu_transmit(ctx, select_aid_apdu, 14, resp, sizeof(resp));
+  if(r < 2){
+    err("gtoSPI_getSeVersion Error on select ISD\n");
+    return -1;
+  }
+  else {
+    if (resp[r - 2] != 0x90){
+        err("gtoSPI_getSeVersion select ISD bad SW \n");
+        return -1;
+    }
+	else {
+        r = se_gto_apdu_transmit(ctx, get_cplc_apdu, 5, resp, sizeof(resp));
+        if(r < 2){
+            err("gtoSPI_getSeVersion Error on get CPLC\n");
+            return -1;
+        }
+        else {
+            dbg("gtoSPI_getSeVersion CPLC data : \n");
+            dump_bytes(ctx, ':', resp, r); 
+            if (resp[r - 2] != 0x90){
+                err("gtoSPI_getSeVersion get CPLC bad SW \n");
+                return -1;
+            }
+	        else {
+                r = se_gto_apdu_transmit(ctx, get_fe_apdu, 5, resp, sizeof(resp));
+                dbg("gtoSPI_getSeVersion FE Tag data : \n");
+                dump_bytes(ctx, ':', resp, r); 
+            }
+        }
+    }
+  }
+
+  return 0;
+}
+
 SE_GTO_EXPORT int
 se_gto_close(struct se_gto_ctx *ctx)
 {

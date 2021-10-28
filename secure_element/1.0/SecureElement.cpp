@@ -109,6 +109,7 @@ int SecureElement::initializeSE() {
     }
 
     checkSeUp = true;
+    gtoSPI_getSeVersion(ctx);
 
     ALOGD("SecureElement:%s end", __func__);
     return EXIT_SUCCESS;

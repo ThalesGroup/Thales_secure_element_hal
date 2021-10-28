@@ -186,6 +186,15 @@ int se_gto_reset(struct se_gto_ctx *ctx, void *atr, size_t r);
  */
 int se_gto_apdu_transmit(struct se_gto_ctx *ctx, const void *apdu, int n, void *resp, int r);
 
+/** Log CPLC and Tag FE for chip recognition
+ *
+ * @param ctx  se-gto library context
+ *
+ * @returns -1 on error.
+ *
+ */
+int gtoSPI_getSeVersion(struct se_gto_ctx *ctx);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
