@@ -216,12 +216,13 @@ send:
                  memcpy(&result[getResponseOffset], resp, resp_len - 2);
                  getResponseOffset += (resp_len - 2);
                  getResponse[4] = resp[resp_len - 1];
+                 getResponse[0] = apdu[0];
                  dump_bytes("getResponse CMD: ", ':', getResponse, 5, stdout);
                  free(apdu);
                  apdu_len = 5;
                  apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
                  memset(resp, 0, resp_len);
-                 memcpy(apdu+1, getResponse+1, apdu_len-1);
+                 memcpy(apdu, getResponse, apdu_len);
                  goto send;
              }
              else if (resp[resp_len - 2] == 0x6C) {
