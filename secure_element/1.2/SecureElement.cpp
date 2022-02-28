@@ -21,6 +21,7 @@
 #include <signal.h>
 #include <limits.h>
 #include <log/log.h>
+#include <dlfcn.h>
 
 #include "se-gto/libse-gto.h"
 #include "SecureElement.h"
@@ -780,6 +781,7 @@ Return<::android::hardware::secure_element::V1_0::SecureElementStatus>
 SecureElement::reset() {
 
     SecureElementStatus status = SecureElementStatus::FAILED;
+    int ret = 0;
 
     ALOGD("SecureElement:%s start", __func__);
     if (deinitializeSE() != SecureElementStatus::SUCCESS) {
@@ -787,19 +789,28 @@ SecureElement::reset() {
     }
 
     if (internalClientCallback_v1_1 != nullptr) {
-        internalClientCallback_v1_1->onStateChange_1_1(false, "reset the SE");
+        internalClientCallback_v1_1->onStateChange_1_1(false, "SE deinitialized");
     } else {
         internalClientCallback->onStateChange(false);
     }
 
-    if(initializeSE() == EXIT_SUCCESS) {
-        status = SecureElementStatus::SUCCESS;
-        if (internalClientCallback_v1_1 != nullptr) {
-            internalClientCallback_v1_1->onStateChange_1_1(true, "SE Initialized");
-        } else {
-            internalClientCallback->onStateChange(true);
+    typedef int (*STEseReset)();
+    void* stdll = dlopen("/vendor/lib64/libstreset.so", RTLD_NOW);
+    STEseReset fn = (STEseReset)dlsym(stdll, "direct_reset");
+    ret = fn();
+    ALOGD("SecureElement:%s STResetTool ret : %d", __func__, ret);
+    if(ret == 0) {
+        ALOGD("SecureElement:%s STResetTool Success", __func__);
+        if(initializeSE() == EXIT_SUCCESS) {
+            status = SecureElementStatus::SUCCESS;
         }
+        if (deinitializeSE() != SecureElementStatus::SUCCESS) {
+            ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
+        }
+    } else {
+        ALOGE("SecureElement:%s STResetTool Failed!", __func__);
     }
+    dlclose(stdll);
 
     ALOGD("SecureElement:%s end", __func__);
 
