@@ -25,15 +25,15 @@
 #include "se-gto/libse-gto.h"
 #include "SecureElement.h"
 
+#include <dlfcn.h>
 
+#define VENDOR_LIB_PATH "/vendor/lib64/"
+#define VENDOR_LIB_EXT ".so"
+#include <android-base/properties.h>
 //#include "profile.h"
 //#include "settings.h"
 
-namespace android {
-namespace hardware {
-namespace secure_element {
-namespace V1_0 {
-namespace implementation {
+namespace se {
 
 #ifndef MAX_CHANNELS
 #define MAX_CHANNELS 0x04
@@ -47,12 +47,24 @@ namespace implementation {
 #define LOG_HAL_LEVEL 4
 #endif
 
+#ifndef SUCCESS
+#define SUCCESS 0
+#endif
+
 uint8_t getResponse[5] = {0x00, 0xC0, 0x00, 0x00, 0x00};
 static struct se_gto_ctx *ctx;
+bool debug_log_enabled = false;
 
-SecureElement::SecureElement(){
+SecureElement::SecureElement(const char* ese_name){
     nbrOpenChannel = 0;
     ctx = NULL;
+
+    strncpy(ese_flag_name, ese_name, 4);
+    if (strncmp(ese_flag_name, "eSE2", 4) == 0) {
+        strncpy(config_filename, "/vendor/etc/libse-gto-hal2.conf", 31);
+    } else {
+        strncpy(config_filename, "/vendor/etc/libse-gto-hal.conf", 30);
+    }
 }
 
 int SecureElement::resetSE(){
@@ -74,10 +86,10 @@ int SecureElement::resetSE(){
     return n;
 }
 
-sp<V1_0::ISecureElementHalCallback> SecureElement::internalClientCallback = nullptr;
 int SecureElement::initializeSE() {
 
     int n;
+    int ret = 0;
 
     ALOGD("SecureElement:%s start", __func__);
 
@@ -93,7 +105,7 @@ int SecureElement::initializeSE() {
         return EXIT_FAILURE;
     }
     //settings = default_settings(ctx);
-    se_gto_set_log_level(ctx, 4);
+    se_gto_set_log_level(ctx, 3);
 
     openConfigFile(1);
 
@@ -102,7 +114,14 @@ int SecureElement::initializeSE() {
         return EXIT_FAILURE;
     }
 
-    if (resetSE() < 0) {
+    ret = resetSE();
+
+    if (ret < 0 && (strncmp(ese_flag_name, "eSE2", 4) == 0)) {
+        sleep(6);
+        ALOGE("SecureElement:%s retry resetSE", __func__);
+        ret = resetSE();
+    }
+    if (ret < 0) {
         se_gto_close(ctx);
         ctx = NULL;
         return EXIT_FAILURE;
@@ -114,127 +133,101 @@ int SecureElement::initializeSE() {
     return EXIT_SUCCESS;
 }
 
-// Methods from ::android::hardware::secure_element::V1_0::ISecureElement follow.
-Return<void> SecureElement::init(const sp<::android::hardware::secure_element::V1_0::ISecureElementHalCallback>& clientCallback) {
+ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>& clientCallback) {
 
     ALOGD("SecureElement:%s start", __func__);
     if (clientCallback == nullptr) {
         ALOGE("SecureElement:%s clientCallback == nullptr", __func__);
-        return Void();
+        return ScopedAStatus::fromExceptionCode(EX_NULL_POINTER);
     } else {
         internalClientCallback = clientCallback;
-        if (!internalClientCallback->linkToDeath(this, 0)) {
-            ALOGE("SecureElement:%s: linkToDeath Failed", __func__);
-        }
     }
 
     if (initializeSE() != EXIT_SUCCESS) {
         ALOGE("SecureElement:%s initializeSE Failed", __func__);
-        clientCallback->onStateChange(false);
+        clientCallback->onStateChange(false, "SE Initialized failed");
     } else {
         ALOGD("SecureElement:%s initializeSE Success", __func__);
-        clientCallback->onStateChange(true);
+        clientCallback->onStateChange(true, "SE Initialized");
     }
 
     ALOGD("SecureElement:%s end", __func__);
 
-    return Void();
+    return ScopedAStatus::ok();
 }
 
-Return<void> SecureElement::getAtr(getAtr_cb _hidl_cb) {
-    hidl_vec<uint8_t> response;
+ScopedAStatus SecureElement::getAtr(std::vector<uint8_t>* aidl_return) {
+    std::vector<uint8_t> response;
     response.resize(atr_size);
     memcpy(&response[0], atr, atr_size);
-    _hidl_cb(response);
-    return Void();
+    *aidl_return = response;
+    return ScopedAStatus::ok();
 }
 
-Return<bool> SecureElement::isCardPresent() {
-    return true;
+ScopedAStatus SecureElement::isCardPresent(bool* aidl_return) {
+    *aidl_return = true;
+    return ScopedAStatus::ok();
 }
 
-Return<void> SecureElement::transmit(const hidl_vec<uint8_t>& data, transmit_cb _hidl_cb) {
+ScopedAStatus SecureElement::transmit(const std::vector<uint8_t>& data, std::vector<uint8_t>* aidl_return) {
 
     uint8_t *apdu;
     uint8_t *resp;
     int status = 0 ;
     int apdu_len = data.size();
     int resp_len = 0;
-    int getResponseOffset = 0;
 
-    apdu = (uint8_t*)malloc((apdu_len + 1) * sizeof(uint8_t));
+    apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
 
-    hidl_vec<uint8_t> result;
+    std::vector<uint8_t> result;
 
     if (checkSeUp && nbrOpenChannel != 0) {
         if (apdu != NULL) {
             memcpy(apdu, data.data(), data.size());
-send:
             dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
             resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         }
 
         if (resp_len < 0) {
             ALOGE("SecureElement:%s: transmit failed", __func__);
-            if (deinitializeSE() != SecureElementStatus::SUCCESS) {
+            if (deinitializeSE() != SUCCESS) {
                 ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
             }
         } else {
             dump_bytes("RESP: ", ':', resp, resp_len, stdout);
-            if (resp[resp_len - 2] == 0x61) {
-                 result.resize(getResponseOffset + resp_len - 2);
-                 memcpy(&result[getResponseOffset], resp, resp_len - 2);
-                 getResponseOffset += (resp_len - 2);
-                 getResponse[4] = resp[resp_len - 1];
-                 getResponse[0] = apdu[0];
-                 dump_bytes("getResponse CMD: ", ':', getResponse, 5, stdout);
-                 free(apdu);
-                 apdu_len = 5;
-                 apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
-                 memset(resp, 0, resp_len);
-                 memcpy(apdu, getResponse, apdu_len);
-                 goto send;
-             }
-             else if (resp[resp_len - 2] == 0x6C) {
-                 result.resize(getResponseOffset + resp_len - 2);
-                 memcpy(&result[getResponseOffset], resp, resp_len - 2);
-                 getResponseOffset += (resp_len - 2);
-                 apdu[4] = resp[resp_len - 1];
-                 dump_bytes("case2 getResponse CMD: ", ':', apdu, 5, stdout);
-                 apdu_len = 5;
-                 memset(resp, 0, resp_len);
-                 goto send;
-             }
-            result.resize(resp_len + getResponseOffset);
-            memcpy(&result[getResponseOffset], resp, resp_len);
+            result.resize(resp_len);
+            memcpy(&result[0], resp, resp_len);
         }
     } else {
         ALOGE("SecureElement:%s: transmit failed! No channel is open", __func__);
     }
-    _hidl_cb(result);
+    aidl_return->assign(result.begin(), result.end());
     if(apdu) free(apdu);
     if(resp) free(resp);
-    return Void();
+    return ScopedAStatus::ok();
 }
 
-Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uint8_t p2, openLogicalChannel_cb _hidl_cb) {
+ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid, int8_t p2, ::aidl::android::hardware::secure_element::LogicalChannelResponse* aidl_return) {
     ALOGD("SecureElement:%s start", __func__);
 
-    LogicalChannelResponse resApduBuff;
-    resApduBuff.channelNumber = 0xff;
+    std::vector<uint8_t> resApduBuff;
+    size_t channelNumber = 0xff;
     memset(&resApduBuff, 0x00, sizeof(resApduBuff));
+    
+    if (internalClientCallback == nullptr) {
+        return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
 
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
-            internalClientCallback->onStateChange(false);
-            _hidl_cb(resApduBuff, SecureElementStatus::IOERROR);
-            return Void();
+            internalClientCallback->onStateChange(false, "SE Initialized failed");
+            return ScopedAStatus::fromServiceSpecificError(IOERROR);
         }
     }
 
-    SecureElementStatus mSecureElementStatus = SecureElementStatus::IOERROR;
+    int mSecureElementStatus = IOERROR;
 
     uint8_t *apdu; //65536
     int apdu_len = 0;
@@ -266,32 +259,30 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
 
 
     if (resp_len < 0) {
-        if (deinitializeSE() != SecureElementStatus::SUCCESS) {
+        if (deinitializeSE() != SUCCESS) {
              ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
         }
-        mSecureElementStatus = SecureElementStatus::IOERROR;
+        mSecureElementStatus = IOERROR;
         ALOGD("SecureElement:%s Free memory after manage channel after ERROR", __func__);
         if(apdu) free(apdu);
         if(resp) free(resp);
-        _hidl_cb(resApduBuff, mSecureElementStatus);
-        return Void();
+        return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     } else if (resp[resp_len - 2] == 0x90 && resp[resp_len - 1] == 0x00) {
-        resApduBuff.channelNumber = resp[0];
+        channelNumber = resp[0];
         nbrOpenChannel++;
-        mSecureElementStatus = SecureElementStatus::SUCCESS;
+        mSecureElementStatus = SUCCESS;
     } else {
         if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x81) {
-            mSecureElementStatus = SecureElementStatus::CHANNEL_NOT_AVAILABLE;
+            mSecureElementStatus = CHANNEL_NOT_AVAILABLE;
         }else if (resp[resp_len - 2] == 0x68 && resp[resp_len - 1] == 0x81) {
-            mSecureElementStatus = SecureElementStatus::CHANNEL_NOT_AVAILABLE;
+            mSecureElementStatus = CHANNEL_NOT_AVAILABLE;
         } else {
-            mSecureElementStatus = SecureElementStatus::IOERROR;
+            mSecureElementStatus = IOERROR;
         }
         ALOGD("SecureElement:%s Free memory after manage channel after ERROR", __func__);
         if(apdu) free(apdu);
         if(resp) free(resp);
-        _hidl_cb(resApduBuff, mSecureElementStatus);
-        return Void();
+        return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     }
 
     if(apdu) free(apdu);
@@ -302,16 +293,16 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
     /*Start Sending select command after Manage Channel is successful.*/
     ALOGD("SecureElement:%s Sending selectApdu", __func__);
 
-    mSecureElementStatus = SecureElementStatus::IOERROR;
+    mSecureElementStatus = IOERROR;
 
     apdu_len = (int32_t)(5 + aid.size());
     resp_len = 0;
-    apdu = (uint8_t*)malloc((apdu_len + 1) * sizeof(uint8_t));
+    apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
 
     if (apdu != NULL && resp!=NULL) {
         index = 0;
-        apdu[index++] = resApduBuff.channelNumber;
+        apdu[index++] = channelNumber;
         apdu[index++] = 0xA4;
         apdu[index++] = 0x04;
         apdu[index++] = p2;
@@ -326,35 +317,36 @@ send_logical:
 
     if (resp_len < 0) {
         ALOGE("SecureElement:%s selectApdu resp_len = %d", __func__,resp_len);
-        if (deinitializeSE() != SecureElementStatus::SUCCESS) {
+        if (deinitializeSE() != SUCCESS) {
              ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
         }
-        mSecureElementStatus = SecureElementStatus::IOERROR;
+        mSecureElementStatus = IOERROR;
     } else {
         dump_bytes("RESP: ", ':', resp, resp_len, stdout);
 
         if (resp[resp_len - 2] == 0x90 || resp[resp_len - 2] == 0x62 || resp[resp_len - 2] == 0x63) {
-            resApduBuff.selectResponse.resize(getResponseOffset + resp_len);
-            memcpy(&resApduBuff.selectResponse[getResponseOffset], resp, resp_len);
-            mSecureElementStatus = SecureElementStatus::SUCCESS;
+            resApduBuff.resize(getResponseOffset + resp_len);
+            memcpy(&resApduBuff[getResponseOffset], resp, resp_len);
+            mSecureElementStatus = SUCCESS;
         }
         else if (resp[resp_len - 2] == 0x61) {
-            resApduBuff.selectResponse.resize(getResponseOffset + resp_len - 2);
-            memcpy(&resApduBuff.selectResponse[getResponseOffset], resp, resp_len - 2);
+            resApduBuff.resize(getResponseOffset + resp_len - 2);
+            memcpy(&resApduBuff[getResponseOffset], resp, resp_len - 2);
             getResponseOffset += (resp_len - 2);
             getResponse[4] = resp[resp_len - 1];
+            getResponse[0] = apdu[0];
             dump_bytes("getResponse CMD: ", ':', getResponse, 5, stdout);
             free(apdu);
             apdu_len = 5;
             apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
             memset(resp, 0, resp_len);
             memcpy(apdu, getResponse, apdu_len);
-            apdu[0] = resApduBuff.channelNumber;
+            apdu[0] = channelNumber;
             goto send_logical;
         }
         else if (resp[resp_len - 2] == 0x6C) {
-            resApduBuff.selectResponse.resize(getResponseOffset + resp_len - 2);
-            memcpy(&resApduBuff.selectResponse[getResponseOffset], resp, resp_len - 2);
+            resApduBuff.resize(getResponseOffset + resp_len - 2);
+            memcpy(&resApduBuff[getResponseOffset], resp, resp_len - 2);
             getResponseOffset += (resp_len - 2);
             apdu[4] = resp[resp_len - 1];
             dump_bytes("case2 getResponse CMD: ", ':', apdu, 5, stdout);
@@ -362,40 +354,45 @@ send_logical:
             goto send_logical;
         }
         else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x80) {
-            mSecureElementStatus = SecureElementStatus::IOERROR;
+            mSecureElementStatus = IOERROR;
         }
         else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x81) {
-            mSecureElementStatus = SecureElementStatus::IOERROR;
+            mSecureElementStatus = IOERROR;
         }
         else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x82) {
-            mSecureElementStatus = SecureElementStatus::NO_SUCH_ELEMENT_ERROR;
+            mSecureElementStatus = NO_SUCH_ELEMENT_ERROR;
         }
         else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x86) {
-            mSecureElementStatus = SecureElementStatus::UNSUPPORTED_OPERATION;
+            mSecureElementStatus = UNSUPPORTED_OPERATION;
         }
         else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x87) {
-            mSecureElementStatus = SecureElementStatus::UNSUPPORTED_OPERATION;
+            mSecureElementStatus = UNSUPPORTED_OPERATION;
         }
     }
 
     /*Check if SELECT command failed, close oppened channel*/
-    if (mSecureElementStatus != SecureElementStatus::SUCCESS) {
-        closeChannel(resApduBuff.channelNumber);
+    if (mSecureElementStatus != SUCCESS) {
+        closeChannel(channelNumber);
     }
 
     ALOGD("SecureElement:%s mSecureElementStatus = %d", __func__, (int)mSecureElementStatus);
-    _hidl_cb(resApduBuff, mSecureElementStatus);
+    *aidl_return = LogicalChannelResponse{
+	.channelNumber = static_cast<int8_t>(channelNumber),
+	.selectResponse = resApduBuff,
+    };
 
     ALOGD("SecureElement:%s Free memory after selectApdu", __func__);
     if(apdu) free(apdu);
     if(resp) free(resp);
-    return Void();
+    
+    if(mSecureElementStatus != SUCCESS) return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
+    else return ScopedAStatus::ok();
 }
 
-Return<void> SecureElement::openBasicChannel(const hidl_vec<uint8_t>& aid, uint8_t p2, openBasicChannel_cb _hidl_cb) {
-    hidl_vec<uint8_t> result;
+ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, int8_t p2, std::vector<uint8_t>* aidl_return) {
+    std::vector<uint8_t> result;
 
-    SecureElementStatus mSecureElementStatus = SecureElementStatus::IOERROR;
+    int mSecureElementStatus = IOERROR;
 
     uint8_t *apdu; //65536
     int apdu_len = 0;
@@ -403,20 +400,23 @@ Return<void> SecureElement::openBasicChannel(const hidl_vec<uint8_t>& aid, uint8
     int resp_len = 0;
     int getResponseOffset = 0;
     uint8_t index = 0;
+    
+    if (internalClientCallback == nullptr) {
+        return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
 
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
-            internalClientCallback->onStateChange(false);
-            _hidl_cb(result, SecureElementStatus::IOERROR);
-            return Void();
+            internalClientCallback->onStateChange(false, "SE Initialized failed");
+            return ScopedAStatus::fromServiceSpecificError(IOERROR);
         }
     }
 
 
     apdu_len = (int32_t)(5 + aid.size());
     resp_len = 0;
-    apdu = (uint8_t*)malloc((apdu_len + 1) * sizeof(uint8_t));
+    apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
 
 
@@ -435,10 +435,10 @@ send_basic:
     }
 
     if (resp_len < 0) {
-        if (deinitializeSE() != SecureElementStatus::SUCCESS) {
+        if (deinitializeSE() != SUCCESS) {
              ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
         }
-        mSecureElementStatus = SecureElementStatus::IOERROR;
+        mSecureElementStatus = IOERROR;
     } else {
         dump_bytes("RESP: ", ':', resp, resp_len, stdout);
 
@@ -448,13 +448,14 @@ send_basic:
 
             isBasicChannelOpen = true;
             nbrOpenChannel++;
-            mSecureElementStatus = SecureElementStatus::SUCCESS;
+            mSecureElementStatus = SUCCESS;
         }
         else if (resp[resp_len - 2] == 0x61) {
             result.resize(getResponseOffset + resp_len - 2);
             memcpy(&result[getResponseOffset], resp, resp_len - 2);
             getResponseOffset += (resp_len - 2);
             getResponse[4] = resp[resp_len - 1];
+            getResponse[0] = apdu[0];
             dump_bytes("getResponse CMD: ", ':', getResponse, 5, stdout);
             free(apdu);
             apdu_len = 5;
@@ -474,29 +475,30 @@ send_basic:
             goto send_basic;
         }
         else if (resp[resp_len - 2] == 0x68 && resp[resp_len - 1] == 0x81) {
-            mSecureElementStatus = SecureElementStatus::CHANNEL_NOT_AVAILABLE;
+            mSecureElementStatus = CHANNEL_NOT_AVAILABLE;
         }
         else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x81) {
-            mSecureElementStatus = SecureElementStatus::CHANNEL_NOT_AVAILABLE;
+            mSecureElementStatus = CHANNEL_NOT_AVAILABLE;
         }
     }
 
-    if ((mSecureElementStatus != SecureElementStatus::SUCCESS) && isBasicChannelOpen) {
+    if ((mSecureElementStatus != SUCCESS) && isBasicChannelOpen) {
       closeChannel(BASIC_CHANNEL);
     }
 
     ALOGD("SecureElement:%s mSecureElementStatus = %d", __func__, (int)mSecureElementStatus);
-    _hidl_cb(result, mSecureElementStatus);
+    *aidl_return = result;
 
     ALOGD("SecureElement:%s Free memory after openBasicChannel", __func__);
     if(apdu) free(apdu);
     if(resp) free(resp);
-    return Void();
+    if(mSecureElementStatus != SUCCESS) return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
+    else return ScopedAStatus::ok();
 }
 
-Return<::android::hardware::secure_element::V1_0::SecureElementStatus> SecureElement::closeChannel(uint8_t channelNumber) {
+ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
     ALOGD("SecureElement:%s start", __func__);
-    SecureElementStatus mSecureElementStatus = SecureElementStatus::FAILED;
+    int mSecureElementStatus = FAILED;
 
     uint8_t *apdu; //65536
     int apdu_len = 10;
@@ -505,17 +507,17 @@ Return<::android::hardware::secure_element::V1_0::SecureElementStatus> SecureEle
 
     if (!checkSeUp) {
         ALOGE("SecureElement:%s cannot closeChannel, HAL is deinitialized", __func__);
-        mSecureElementStatus = SecureElementStatus::FAILED;
+        mSecureElementStatus = FAILED;
         ALOGD("SecureElement:%s end", __func__);
-        return mSecureElementStatus;
+        return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     }
 
     if ((channelNumber < 0) || (channelNumber >= MAX_CHANNELS)) {
         ALOGE("SecureElement:%s Channel not supported", __func__);
-        mSecureElementStatus = SecureElementStatus::FAILED;
+        mSecureElementStatus = FAILED;
     } else if (channelNumber == 0) {
         isBasicChannelOpen = false;
-        mSecureElementStatus = SecureElementStatus::SUCCESS;
+        mSecureElementStatus = SUCCESS;
         nbrOpenChannel--;
     } else {
         apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
@@ -534,15 +536,15 @@ Return<::android::hardware::secure_element::V1_0::SecureElementStatus> SecureEle
             resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         }
         if (resp_len < 0) {
-            mSecureElementStatus = SecureElementStatus::FAILED;
-            if (deinitializeSE() != SecureElementStatus::SUCCESS) {
+            mSecureElementStatus = FAILED;
+            if (deinitializeSE() != SUCCESS) {
                 ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
             }
         } else if ((resp[resp_len - 2] == 0x90) && (resp[resp_len - 1] == 0x00)) {
-            mSecureElementStatus = SecureElementStatus::SUCCESS;
+            mSecureElementStatus = SUCCESS;
             nbrOpenChannel--;
         } else {
-            mSecureElementStatus = SecureElementStatus::FAILED;
+            mSecureElementStatus = FAILED;
         }
         if(apdu) free(apdu);
         if(resp) free(resp);
@@ -550,12 +552,13 @@ Return<::android::hardware::secure_element::V1_0::SecureElementStatus> SecureEle
 
     if (nbrOpenChannel == 0 && isBasicChannelOpen == false) {
         ALOGD("SecureElement:%s All Channels are closed", __func__);
-        if (deinitializeSE() != SecureElementStatus::SUCCESS) {
+        if (deinitializeSE() != SUCCESS) {
             ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
         }
     }
     ALOGD("SecureElement:%s end", __func__);
-    return mSecureElementStatus;
+    if(mSecureElementStatus != SUCCESS) return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
+    else return ScopedAStatus::ok();
 }
 
 void
@@ -565,6 +568,8 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
     char *msg;
     int len = 0;
     int input_len = n;
+
+    if (!debug_log_enabled) return;
 
     msg = (char*) malloc ( (pf ? strlen(pf) : 0) + input_len * 3 + 1);
     if(!msg) {
@@ -654,13 +659,26 @@ SecureElement::parseConfigFile(FILE *f, int verbose)
             continue;
         }
 
-        pch = strtok (s," =;");
-        if (strcmp("GTO_DEV", pch) == 0){
+        pch = strtok(s," =;");
+        if (strcmp("GTO_DEV", pch) == 0) {
             pch = strtok (NULL, " =;");
             ALOGD("SecureElement:%s Defined node : %s", __func__, pch);
-            if (strlen (pch) > 0 && strcmp("\n",pch) != 0 && strcmp("\0",pch) != 0 ) se_gto_set_gtodev(ctx, pch);
+            if (strlen(pch) > 0 && strcmp("\n", pch) != 0 && strcmp("\0", pch) != 0 ) {
+                se_gto_set_gtodev(ctx, pch);
+            }
+        } else if (strcmp("GTO_DEBUG", pch) == 0) {
+            pch = strtok(NULL, " =;");
+            ALOGD("SecureElement:%s Log state : %s", __func__, pch);
+            if (strlen(pch) > 0 && strcmp("\n", pch) != 0 && strcmp("\0", pch) != 0 ) {
+                if (strcmp(pch, "enable") == 0) {
+                    debug_log_enabled = true;
+                    se_gto_set_log_level(ctx, 4);
+                } else {
+                    debug_log_enabled = false;
+                    se_gto_set_log_level(ctx, 3);
+                }
+            }
         }
-        
     }
     return 0;
 }
@@ -670,74 +688,110 @@ SecureElement::openConfigFile(int verbose)
 {
     int   r;
     FILE *f;
-    char filename[] = "/vendor/etc/libse-gto-hal.conf";
+
 
     /* filename is not NULL */
-    ALOGD("SecureElement:%s Open Config file : %s", __func__, filename);
-    f = fopen(filename, "r");
+    ALOGD("SecureElement:%s Open Config file : %s", __func__, config_filename);
+    f = fopen(config_filename, "r");
     if (f) {
         r = parseConfigFile(f, verbose);
         if (r == -1) {
-            perror(filename);
-            ALOGE("SecureElement:%s Error parse %s Failed", __func__, filename);
-		}
+            perror(config_filename);
+            ALOGE("SecureElement:%s Error parse %s Failed", __func__, config_filename);
+        }
         if (fclose(f) != 0) {
             r = -1;
-            ALOGE("SecureElement:%s Error close %s Failed", __func__, filename);
-		}
+            ALOGE("SecureElement:%s Error close %s Failed", __func__, config_filename);
+        }
     } else {
         r = -1;
-        ALOGE("SecureElement:%s Error open %s Failed", __func__, filename);
+        ALOGE("SecureElement:%s Error open %s Failed", __func__, config_filename);
     }
     return r;
 }
 
-void SecureElement::serviceDied(uint64_t, const wp<IBase>&) {
-  ALOGD("SecureElement:%s SecureElement serviceDied", __func__);
-  SecureElementStatus mSecureElementStatus = deinitializeSE();
-  if (mSecureElementStatus != SecureElementStatus::SUCCESS) {
-    ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
-  }
-  if (internalClientCallback != nullptr) {
-    internalClientCallback->unlinkToDeath(this);
-    internalClientCallback = nullptr;
-  }
-}
-
-Return<::android::hardware::secure_element::V1_0::SecureElementStatus>
-SecureElement::deinitializeSE() {
-    SecureElementStatus mSecureElementStatus = SecureElementStatus::FAILED;
+int SecureElement::deinitializeSE() {
+    int mSecureElementStatus = FAILED;
 
     ALOGD("SecureElement:%s start", __func__);
-
+    
     if(checkSeUp){
         if (se_gto_close(ctx) < 0) {
-            mSecureElementStatus = SecureElementStatus::FAILED;
-            internalClientCallback->onStateChange(false);
+            mSecureElementStatus = FAILED;
+            internalClientCallback->onStateChange(false, "SE Initialized failed");
         } else {
             ctx = NULL;
-            mSecureElementStatus = SecureElementStatus::SUCCESS;
+            mSecureElementStatus = SUCCESS;
             isBasicChannelOpen = false;
             nbrOpenChannel = 0;
         }
         checkSeUp = false;
     }else{
         ALOGD("SecureElement:%s No need to deinitialize SE", __func__);
-        mSecureElementStatus = SecureElementStatus::SUCCESS;
+        mSecureElementStatus = SUCCESS;
     }
 
     ALOGD("SecureElement:%s end", __func__);
     return mSecureElementStatus;
 }
 
+ScopedAStatus SecureElement::reset() {
+
+    int status = FAILED;
+    std::string eSE1ResetToolStr;
+
+    int ret = 0;
+
+    ALOGD("SecureElement:%s start", __func__);
+    if (strncmp(ese_flag_name, "eSE1", 4) == 0) {
+        eSE1ResetToolStr = android::base::GetProperty("persist.vendor.se.streset", "");
+    }
+    if (deinitializeSE() != SUCCESS) {
+        ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
+    }
+    
+    if (internalClientCallback == nullptr) {
+        return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
+
+    internalClientCallback->onStateChange(false, "reset the SE"); 
+
+    if (eSE1ResetToolStr.length() > 0) {
+        typedef int (*STEseReset)();
+        eSE1ResetToolStr = VENDOR_LIB_PATH + eSE1ResetToolStr + VENDOR_LIB_EXT;
+        void *stdll = dlopen(eSE1ResetToolStr.c_str(), RTLD_NOW);
+        STEseReset fn = (STEseReset)dlsym(stdll, "direct_reset");
+        ret = fn();
+
+        ALOGD("SecureElement:%s STResetTool ret : %d", __func__, ret);
+        if (ret == 0) {
+            ALOGD("SecureElement:%s STResetTool Success", __func__);
+            if (initializeSE() == EXIT_SUCCESS) {
+                status = SUCCESS;
+                internalClientCallback->onStateChange(true, "SE Initialized");
+            }
+        } else {
+            ALOGE("SecureElement:%s STResetTool Failed!", __func__);
+        }
+
+        dlclose(stdll);
+    } else {
+        if (initializeSE() == EXIT_SUCCESS) {
+            internalClientCallback->onStateChange(true, "SE Initialized");
+            status = SUCCESS;
+        }
+    }
+
+    ALOGD("SecureElement:%s end", __func__);
+
+    if(status != SUCCESS) return ScopedAStatus::fromServiceSpecificError(status);
+    else return ScopedAStatus::ok();
+}
+
+}
 // Methods from ::android::hidl::base::V1_0::IBase follow.
 
 //ISecureElement* HIDL_FETCH_ISecureElement(const char* /* name */) {
     //return new SecureElement();
 //}
 //
-}  // namespace implementation
-}  // namespace V1_0
-}  // namespace secure_element
-}  // namespace hardware
-}  // namespace android

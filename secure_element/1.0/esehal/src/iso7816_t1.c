@@ -47,7 +47,7 @@
 
 #define MAX_WTX_ROUNDS 200
 
-#define WTX_MAX_VALUE 1
+#define WTX_MAX_VALUE 0x0F
 
 static void
 t1_init_recv_window(struct t1_state *t1, void *buf, size_t n)

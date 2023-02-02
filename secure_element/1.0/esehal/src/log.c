@@ -66,10 +66,12 @@ vsay(struct se_gto_ctx *ctx, const char *fmt, va_list args)
     if (k >= BUFSIZE)
         k = BUFSIZE - 1;
     buf    = ctx->log_buf;
-    buf[k] = '\000';
-    if ((buf[k - 1] == '\n') || (k == (BUFSIZE - 1))) {
-        k = 0;
-        ctx->log_fn(ctx, buf);
+    if (k >= 0) {
+        buf[k] = '\000';
+        if ((k > 0 && (buf[k - 1] == '\n')) || (k == (BUFSIZE - 1))) {
+            k = 0;
+            ctx->log_fn(ctx, buf);
+        }
     }
 }
 

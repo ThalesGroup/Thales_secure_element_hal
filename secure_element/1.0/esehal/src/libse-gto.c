@@ -21,21 +21,22 @@
  *
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
 #include <ctype.h>
-#include <stdint.h>
+#include <cutils/properties.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <log/log.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
-#include "se-gto/libse-gto.h"
 #include "libse-gto-private.h"
+#include "se-gto/libse-gto.h"
 #include "spi.h"
 
 #define SE_GTO_GTODEV "/dev/gto"
@@ -218,11 +219,23 @@ se_gto_open(struct se_gto_ctx *ctx)
     return 0;
 }
 
-int se_gto_Spi_Reset()
+#define SPI_IOC_MAGIC    'k'
+#define ST54SPI_IOC_WR_POWER _IOW(SPI_IOC_MAGIC, 99, __u32)
+
+int se_gto_Spi_Reset(struct se_gto_ctx *ctx)
 {
-    /**
-	* @Todo: Add proprietary SPI Reset code here
-	**/
+    uint32_t io_code;
+    uint32_t power = 0;
+
+    printf("Send software reset via ioctl\n");
+    io_code = ST54SPI_IOC_WR_POWER;
+    power = 1;
+    if (-1 == ioctl (ctx->t1.spi_fd, io_code, &power)) {
+        perror("unable to soft reset via ioctl\n");
+        return -1;
+    }
+
+    isot1_resync(&ctx->t1);
     return 0;
 }
 
@@ -230,19 +243,17 @@ int gtoSPI_checkAlive(struct se_gto_ctx *ctx);
 int gtoSPI_checkAlive(struct se_gto_ctx *ctx)
 {
   int ret = 0;
-  int count = 3;
   unsigned char apdu[5]= {0x80,0xCA,0x9F,0x7F,0x2D};
   unsigned char resp[258] = {0,};
 
-recheck:
   /*Check Alive implem*/
-  ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
-  if(ret < 0){
-    if (count == 0) return -1;
-    count--;
-    /*Run SPI reset*/
-    se_gto_Spi_Reset();
-    goto recheck;
+  for(int count = 0; count < 3; count++) {
+      ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
+      if(ret < 0){
+        if (count == 2) return -1;
+        /*Run SPI reset*/
+        se_gto_Spi_Reset(ctx);
+      }
   }
 
   return 0;
@@ -252,10 +263,30 @@ SE_GTO_EXPORT int
 se_gto_close(struct se_gto_ctx *ctx)
 {
     int status = 0;
+    const char ese_reset_property[] = "persist.vendor.se.reset";
 
-    if(ctx) dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
-    if (ctx->check_alive == 1)
-        if (gtoSPI_checkAlive(ctx) != 0) status = 0xDEAD;
+    if (ctx){
+        dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
+    }
+    if (ctx->check_alive == 1) {
+        if (gtoSPI_checkAlive(ctx) != 0) {
+            status = -(0xDEAD);
+            // eSE needs cold reset.
+            if (strncmp(ctx->gtodev, "/dev/st54spi", 12) == 0 ) {
+                property_set(ese_reset_property, "needed");
+            }
+        } else {
+            // Set noneed if SPI worked normally.
+            if (strncmp(ctx->gtodev, "/dev/st54spi", 12) == 0 ) {
+                property_set(ese_reset_property, "noneed");
+            }
+        }
+    } else {
+        // Set noneed if SPI worked normally.
+        if (strncmp(ctx->gtodev, "/dev/st54spi", 12) == 0 ) {
+            property_set(ese_reset_property, "noneed");
+        }
+    }
 
     (void)isot1_release(&ctx->t1);
     (void)spi_teardown(ctx);
