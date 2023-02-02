@@ -219,23 +219,11 @@ se_gto_open(struct se_gto_ctx *ctx)
     return 0;
 }
 
-#define SPI_IOC_MAGIC    'k'
-#define ST54SPI_IOC_WR_POWER _IOW(SPI_IOC_MAGIC, 99, __u32)
-
 int se_gto_Spi_Reset(struct se_gto_ctx *ctx)
 {
-    uint32_t io_code;
-    uint32_t power = 0;
-
-    printf("Send software reset via ioctl\n");
-    io_code = ST54SPI_IOC_WR_POWER;
-    power = 1;
-    if (-1 == ioctl (ctx->t1.spi_fd, io_code, &power)) {
-        perror("unable to soft reset via ioctl\n");
-        return -1;
-    }
-
-    isot1_resync(&ctx->t1);
+    /**
+	* @Todo: Add proprietary SPI Reset code here
+	**/
     return 0;
 }
 
