@@ -4,7 +4,7 @@
  * This copy is licensed under the Apache License, Version 2.0 (the "License");
  * You may not use this file except in compliance with the License.
  * You may obtain a copy of the License at:
- *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html 
+ *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and limitations under the License.
@@ -21,13 +21,11 @@
 #include <signal.h>
 #include <limits.h>
 #include <log/log.h>
+#include <dlfcn.h>
+#include <android-base/properties.h>
 
 #include "se-gto/libse-gto.h"
 #include "SecureElement.h"
-
-
-//#include "profile.h"
-//#include "settings.h"
 
 namespace android {
 namespace hardware {
@@ -47,12 +45,24 @@ namespace implementation {
 #define LOG_HAL_LEVEL 4
 #endif
 
+#ifndef MAX_AID_LEN
+#define MAX_AID_LEN 16
+#endif
+
 uint8_t getResponse[5] = {0x00, 0xC0, 0x00, 0x00, 0x00};
 static struct se_gto_ctx *ctx;
+bool debug_log_enabled = false;
 
-SecureElement::SecureElement(){
+SecureElement::SecureElement(const char* ese_name){
     nbrOpenChannel = 0;
     ctx = NULL;
+
+    strncpy(ese_flag_name, ese_name, 4);
+    if (strncmp(ese_flag_name, "eSE2", 4) == 0) {
+        strncpy(config_filename, "/vendor/etc/libse-gto-hal2.conf", 31);
+    } else {
+        strncpy(config_filename, "/vendor/etc/libse-gto-hal.conf", 30);
+    }
 }
 
 int SecureElement::resetSE(){
@@ -79,6 +89,7 @@ sp<V1_1::ISecureElementHalCallback> SecureElement::internalClientCallback_v1_1 =
 int SecureElement::initializeSE() {
 
     int n;
+    int ret = 0;
 
     ALOGD("SecureElement:%s start", __func__);
 
@@ -93,8 +104,7 @@ int SecureElement::initializeSE() {
 
         return EXIT_FAILURE;
     }
-    //settings = default_settings(ctx);
-    se_gto_set_log_level(ctx, 4);
+    se_gto_set_log_level(ctx, 3);
 
     openConfigFile(1);
 
@@ -103,7 +113,14 @@ int SecureElement::initializeSE() {
         return EXIT_FAILURE;
     }
 
-    if (resetSE() < 0) {
+    ret = resetSE();
+
+    if (ret < 0 && (strncmp(ese_flag_name, "eSE2", 4) == 0)) {
+        sleep(6);
+        ALOGE("SecureElement:%s retry resetSE", __func__);
+        ret = resetSE();
+    }
+    if (ret < 0) {
         se_gto_close(ctx);
         ctx = NULL;
         return EXIT_FAILURE;
@@ -188,9 +205,8 @@ Return<void> SecureElement::transmit(const hidl_vec<uint8_t>& data, transmit_cb 
     int status = 0 ;
     int apdu_len = data.size();
     int resp_len = 0;
-    int getResponseOffset = 0;
 
-    apdu = (uint8_t*)malloc((apdu_len + 1) * sizeof(uint8_t));
+    apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
 
     hidl_vec<uint8_t> result;
@@ -198,7 +214,6 @@ Return<void> SecureElement::transmit(const hidl_vec<uint8_t>& data, transmit_cb 
     if (checkSeUp && nbrOpenChannel != 0) {
         if (apdu != NULL) {
             memcpy(apdu, data.data(), data.size());
-send:
             dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
             resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         }
@@ -210,32 +225,8 @@ send:
             }
         } else {
             dump_bytes("RESP: ", ':', resp, resp_len, stdout);
-            if (resp[resp_len - 2] == 0x61) {
-                 result.resize(getResponseOffset + resp_len - 2);
-                 memcpy(&result[getResponseOffset], resp, resp_len - 2);
-                 getResponseOffset += (resp_len - 2);
-                 getResponse[4] = resp[resp_len - 1];
-                 getResponse[0] = apdu[0];
-                 dump_bytes("getResponse CMD: ", ':', getResponse, 5, stdout);
-                 free(apdu);
-                 apdu_len = 5;
-                 apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
-                 memset(resp, 0, resp_len);
-                 memcpy(apdu, getResponse, apdu_len);
-                 goto send;
-             }
-             else if (resp[resp_len - 2] == 0x6C) {
-                 result.resize(getResponseOffset + resp_len - 2);
-                 memcpy(&result[getResponseOffset], resp, resp_len - 2);
-                 getResponseOffset += (resp_len - 2);
-                 apdu[4] = resp[resp_len - 1];
-                 dump_bytes("case2 getResponse CMD: ", ':', apdu, 5, stdout);
-                 apdu_len = 5;
-                 memset(resp, 0, resp_len);
-                 goto send;
-             }
-            result.resize(resp_len + getResponseOffset);
-            memcpy(&result[getResponseOffset], resp, resp_len);
+            result.resize(resp_len);
+            memcpy(&result[0], resp, resp_len);
         }
     } else {
         ALOGE("SecureElement:%s: transmit failed! No channel is open", __func__);
@@ -269,6 +260,13 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
 
     SecureElementStatus mSecureElementStatus = SecureElementStatus::IOERROR;
 
+    if (aid.size() > MAX_AID_LEN) {
+        ALOGE("SecureElement:%s: Bad AID size", __func__);
+        _hidl_cb(resApduBuff, SecureElementStatus::FAILED);
+        return Void();
+    }
+
+
     uint8_t *apdu; //65536
     int apdu_len = 0;
     uint8_t *resp;
@@ -279,7 +277,7 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
     apdu_len = 5;
     apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
-  
+
     if (apdu != NULL && resp!=NULL) {
         index = 0;
         apdu[index++] = 0x00;
@@ -337,9 +335,9 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
 
     mSecureElementStatus = SecureElementStatus::IOERROR;
 
-    apdu_len = (int32_t)(5 + aid.size());
+    apdu_len = (int32_t)(6 + aid.size());
     resp_len = 0;
-    apdu = (uint8_t*)malloc((apdu_len + 1) * sizeof(uint8_t));
+    apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
 
     if (apdu != NULL && resp!=NULL) {
@@ -350,6 +348,8 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
         apdu[index++] = p2;
         apdu[index++] = aid.size();
         memcpy(&apdu[index], aid.data(), aid.size());
+        index += aid.size();
+        apdu[index] = 0x00;
 
 send_logical:
         dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
@@ -376,6 +376,7 @@ send_logical:
             memcpy(&resApduBuff.selectResponse[getResponseOffset], resp, resp_len - 2);
             getResponseOffset += (resp_len - 2);
             getResponse[4] = resp[resp_len - 1];
+            getResponse[0] = apdu[0];
             dump_bytes("getResponse CMD: ", ':', getResponse, 5, stdout);
             free(apdu);
             apdu_len = 5;
@@ -437,6 +438,12 @@ Return<void> SecureElement::openBasicChannel(const hidl_vec<uint8_t>& aid, uint8
     int getResponseOffset = 0;
     uint8_t index = 0;
 
+    if (isBasicChannelOpen) {
+        ALOGE("SecureElement:%s: Basic Channel already open", __func__);
+        _hidl_cb(result, SecureElementStatus::CHANNEL_NOT_AVAILABLE);
+        return Void();
+    }
+
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
@@ -451,10 +458,15 @@ Return<void> SecureElement::openBasicChannel(const hidl_vec<uint8_t>& aid, uint8
         }
     }
 
+    if (aid.size() > MAX_AID_LEN) {
+        ALOGE("SecureElement:%s: Bad AID size", __func__);
+        _hidl_cb(result, SecureElementStatus::FAILED);
+        return Void();
+    }
 
-    apdu_len = (int32_t)(5 + aid.size());
+    apdu_len = (int32_t)(6 + aid.size());
     resp_len = 0;
-    apdu = (uint8_t*)malloc((apdu_len + 1) * sizeof(uint8_t));
+    apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
 
 
@@ -466,8 +478,11 @@ Return<void> SecureElement::openBasicChannel(const hidl_vec<uint8_t>& aid, uint8
         apdu[index++] = p2;
         apdu[index++] = aid.size();
         memcpy(&apdu[index], aid.data(), aid.size());
-        dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
+        index += aid.size();
+        apdu[index] = 0x00;
+
 send_basic:
+        dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
         resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         ALOGD("SecureElement:%s selectApdu resp_len = %d", __func__,resp_len);
     }
@@ -493,6 +508,7 @@ send_basic:
             memcpy(&result[getResponseOffset], resp, resp_len - 2);
             getResponseOffset += (resp_len - 2);
             getResponse[4] = resp[resp_len - 1];
+            getResponse[0] = apdu[0];
             dump_bytes("getResponse CMD: ", ':', getResponse, 5, stdout);
             free(apdu);
             apdu_len = 5;
@@ -604,6 +620,8 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
     int len = 0;
     int input_len = n;
 
+    if (!debug_log_enabled) return;
+
     msg = (char*) malloc ( (pf ? strlen(pf) : 0) + input_len * 3 + 1);
     if(!msg) {
         errno = ENOMEM;
@@ -612,14 +630,11 @@ SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FIL
 
     if (pf) {
         len += sprintf(msg , "%s" , pf);
-        //len = len + 8;
     }
     while (input_len--) {
         len += sprintf(msg + len, "%02X" , *s++);
-        //len = len + 2;
         if (input_len && sep) {
             len += sprintf(msg + len, ":");
-            //len++;
         }
     }
     sprintf(msg + len, "\n");
@@ -687,18 +702,29 @@ SecureElement::parseConfigFile(FILE *f, int verbose)
         if (s == NULL)
             break;
         if (s[0] == '#') {
-            /*if (verbose)
-                fputs(buf, stdout);*/
             continue;
         }
 
-        pch = strtok (s," =;");
-        if (strcmp("GTO_DEV", pch) == 0){
+        pch = strtok(s," =;");
+        if (strcmp("GTO_DEV", pch) == 0) {
             pch = strtok (NULL, " =;");
             ALOGD("SecureElement:%s Defined node : %s", __func__, pch);
-            if (strlen (pch) > 0 && strcmp("\n",pch) != 0 && strcmp("\0",pch) != 0 ) se_gto_set_gtodev(ctx, pch);
+            if (strlen(pch) > 0 && strcmp("\n", pch) != 0 && strcmp("\0", pch) != 0 ) {
+                se_gto_set_gtodev(ctx, pch);
+            }
+        } else if (strcmp("GTO_DEBUG", pch) == 0) {
+            pch = strtok(NULL, " =;");
+            ALOGD("SecureElement:%s Log state : %s", __func__, pch);
+            if (strlen(pch) > 0 && strcmp("\n", pch) != 0 && strcmp("\0", pch) != 0 ) {
+                if (strcmp(pch, "enable") == 0) {
+                    debug_log_enabled = true;
+                    se_gto_set_log_level(ctx, 4);
+                } else {
+                    debug_log_enabled = false;
+                    se_gto_set_log_level(ctx, 3);
+                }
+            }
         }
-        
     }
     return 0;
 }
@@ -708,24 +734,24 @@ SecureElement::openConfigFile(int verbose)
 {
     int   r;
     FILE *f;
-    char filename[] = "/vendor/etc/libse-gto-hal.conf";
+
 
     /* filename is not NULL */
-    ALOGD("SecureElement:%s Open Config file : %s", __func__, filename);
-    f = fopen(filename, "r");
+    ALOGD("SecureElement:%s Open Config file : %s", __func__, config_filename);
+    f = fopen(config_filename, "r");
     if (f) {
         r = parseConfigFile(f, verbose);
         if (r == -1) {
-            perror(filename);
-            ALOGE("SecureElement:%s Error parse %s Failed", __func__, filename);
-		}
+            perror(config_filename);
+            ALOGE("SecureElement:%s Error parse %s Failed", __func__, config_filename);
+        }
         if (fclose(f) != 0) {
             r = -1;
-            ALOGE("SecureElement:%s Error close %s Failed", __func__, filename);
-		}
+            ALOGE("SecureElement:%s Error close %s Failed", __func__, config_filename);
+        }
     } else {
         r = -1;
-        ALOGE("SecureElement:%s Error open %s Failed", __func__, filename);
+        ALOGE("SecureElement:%s Error open %s Failed", __func__, config_filename);
     }
     return r;
 }
@@ -782,6 +808,7 @@ SecureElement::reset() {
     SecureElementStatus status = SecureElementStatus::FAILED;
 
     ALOGD("SecureElement:%s start", __func__);
+
     if (deinitializeSE() != SecureElementStatus::SUCCESS) {
         ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
     }
@@ -805,13 +832,6 @@ SecureElement::reset() {
 
     return status;
 }
-
-// Methods from ::android::hidl::base::V1_0::IBase follow.
-
-//ISecureElement* HIDL_FETCH_ISecureElement(const char* /* name */) {
-    //return new SecureElement();
-//}
-//
 }  // namespace implementation
 }  // namespace V1_2
 }  // namespace secure_element

@@ -4,7 +4,7 @@
  * This copy is licensed under the Apache License, Version 2.0 (the "License");
  * You may not use this file except in compliance with the License.
  * You may obtain a copy of the License at:
- *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html 
+ *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and limitations under the License.
@@ -21,21 +21,22 @@
  *
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
 #include <ctype.h>
-#include <stdint.h>
+#include <cutils/properties.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <log/log.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
-#include "se-gto/libse-gto.h"
 #include "libse-gto-private.h"
+#include "se-gto/libse-gto.h"
 #include "spi.h"
 
 #define SE_GTO_GTODEV "/dev/gto"
@@ -184,7 +185,7 @@ se_gto_apdu_transmit(struct se_gto_ctx *ctx, const void *apdu, int n, void *resp
     }
     r = isot1_transceive(&ctx->t1, apdu, n, resp, r);
     dbg("isot1_transceive: r=%d\n", r);
-    dbg("isot1_transceive: ctx->t1.recv.end - ctx->t1.recv.start = %d\n", ctx->t1.recv.end - ctx->t1.recv.start);
+    dbg("isot1_transceive: ctx->t1.recv.end - ctx->t1.recv.start = %ld\n", ctx->t1.recv.end - ctx->t1.recv.start);
     dbg("isot1_transceive: ctx->t1.recv.size = %zu\n", ctx->t1.recv.size);
     dbg("isot1_transceive: ctx->t1.buf[2] = %02X\n", ctx->t1.buf[2]);
     if (r < 0) {
@@ -218,7 +219,7 @@ se_gto_open(struct se_gto_ctx *ctx)
     return 0;
 }
 
-int se_gto_Spi_Reset()
+int se_gto_Spi_Reset(struct se_gto_ctx *ctx)
 {
     /**
 	* @Todo: Add proprietary SPI Reset code here
@@ -230,19 +231,17 @@ int gtoSPI_checkAlive(struct se_gto_ctx *ctx);
 int gtoSPI_checkAlive(struct se_gto_ctx *ctx)
 {
   int ret = 0;
-  int count = 3;
   unsigned char apdu[5]= {0x80,0xCA,0x9F,0x7F,0x2D};
   unsigned char resp[258] = {0,};
 
-recheck:
   /*Check Alive implem*/
-  ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
-  if(ret < 0){
-    if (count == 0) return -1;
-    count--;
-    /*Run SPI reset*/
-    se_gto_Spi_Reset();
-    goto recheck;
+  for(int count = 0; count < 3; count++) {
+      ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
+      if(ret < 0){
+        if (count == 2) return -1;
+        /*Run SPI reset*/
+        se_gto_Spi_Reset(ctx);
+      }
   }
 
   return 0;

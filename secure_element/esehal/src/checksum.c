@@ -4,7 +4,7 @@
  * This copy is licensed under the Apache License, Version 2.0 (the "License");
  * You may not use this file except in compliance with the License.
  * You may obtain a copy of the License at:
- *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html 
+ *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and limitations under the License.
@@ -89,7 +89,9 @@ crc_ccitt(uint16_t crc, const void *s, size_t n)
     const uint8_t *p = s;
 
     if (s)
-        while(n--)
+        while(n) {
             crc = (uint8_t)(crc >> 8) ^ fast[(uint8_t)(crc ^ *p++)];
+            n--;
+        }
     return crc;
 }

@@ -4,7 +4,7 @@
  * This copy is licensed under the Apache License, Version 2.0 (the "License");
  * You may not use this file except in compliance with the License.
  * You may obtain a copy of the License at:
- *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html 
+ *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and limitations under the License.
@@ -17,42 +17,30 @@
  * $Revision$
  * $Date$
  *
- * Internal of libspiplus.
+ * Compiler specific definition. Currently target gcc and clang.
+ *
+ * We need offsetof() and containerof().
  *
  */
 
-#ifndef LIBSE_GTO_PRIVATE_H
-#define LIBSE_GTO_PRIVATE_H
+#ifndef COMPILER_H
+#define COMPILER_H
 
-#include <se-gto/libse-gto.h>
-#include "iso7816_t1.h"
+#include <stdint.h>
+# include <stddef.h>
 
-#define SE_GTO_EXPORT __attribute__((visibility("default")))
+#define container_of(ptr, type, member)                  \
+    ({ const typeof(((type *)0)->member) * __mp = (ptr); \
+       (type *)((char *)__mp - offsetof(type, member)); })
 
-/**
- * SECTION:libspiplus
- * @short_description: libspiplus context
- *
- * The context contains the default values for the library user,
- * and is passed to all library operations.
- */
-struct se_gto_ctx {
-    void *userdata;
+#define __COMPILE_ASSERT(cond) ((void)sizeof(char[1 - 2 * !(cond)]))
+#define _COMPILE_ASSERT(cond) __COMPILE_ASSERT(cond)
+#define COMPILE_ASSERT(cond) _COMPILE_ASSERT(!!(cond))
 
-    int            log_level;
-    se_gto_log_fn *log_fn;
-    char          *log_buf;
+#ifdef __GNUC__
+# define check_printf(f, v) __attribute__((format(printf, f, v)))
+#else
+# define check_printf(f, v)
+#endif
 
-    const char *gtodev;
-
-    void *spi_buffer;
-    int   spi_nbuffer;
-
-    struct t1_state t1;
-
-    uint8_t check_alive;
-};
-
-#include "log.h"
-
-#endif /* ifndef LIBSE_GTO_PRIVATE_H */
+#endif /* ifndef COMPILER_H */

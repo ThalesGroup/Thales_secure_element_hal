@@ -4,7 +4,7 @@
  * This copy is licensed under the Apache License, Version 2.0 (the "License");
  * You may not use this file except in compliance with the License.
  * You may obtain a copy of the License at:
- *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html 
+ *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and limitations under the License.
@@ -34,7 +34,7 @@ using ::android::sp;
 
 struct SecureElement : public ISecureElement , public hidl_death_recipient {
     // Methods from ::android::hardware::secure_element::V1_0::ISecureElement follow.
-    SecureElement();
+    SecureElement(const char* ese_name);
     Return<void> init(const sp<V1_0::ISecureElementHalCallback>& clientCallback) override;
     Return<void> openLogicalChannel(const hidl_vec<uint8_t>& aid, uint8_t p2, openLogicalChannel_cb _hidl_cb) override;
     Return<void> openBasicChannel(const hidl_vec<uint8_t>& aid, uint8_t p2, openBasicChannel_cb _hidl_cb) override;
@@ -51,6 +51,7 @@ struct SecureElement : public ISecureElement , public hidl_death_recipient {
     bool checkSeUp = false;
     uint8_t atr[32];
     uint8_t atr_size;
+    char config_filename[100];
     static sp<V1_0::ISecureElementHalCallback> internalClientCallback;
     int initializeSE();
     Return<::android::hardware::secure_element::V1_0::SecureElementStatus> deinitializeSE();
@@ -62,9 +63,6 @@ struct SecureElement : public ISecureElement , public hidl_death_recipient {
     int openConfigFile(int verbose);
     int parseConfigFile(FILE *f, int verbose);
 };
-
-// FIXME: most likely delete, this is only for passthrough implementations
-// extern "C" ISecureElement* HIDL_FETCH_ISecureElement(const char* name);
 
 }  // namespace implementation
 }  // namespace V1_0
