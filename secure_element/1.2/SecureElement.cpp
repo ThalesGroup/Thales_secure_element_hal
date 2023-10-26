@@ -27,6 +27,9 @@
 #include "se-gto/libse-gto.h"
 #include "SecureElement.h"
 
+#define VENDOR_LIB_PATH "/vendor/lib64/"
+#define VENDOR_LIB_EXT ".so"
+
 namespace android {
 namespace hardware {
 namespace secure_element {
@@ -72,13 +75,30 @@ int SecureElement::resetSE(){
     nbrOpenChannel = 0;
 
     ALOGD("SecureElement:%s se_gto_reset start", __func__);
-    n = se_gto_reset(ctx, atr, sizeof(atr));
+    n = se_gto_reset(ctx);
+    if (n >= 0) {
+        ALOGD("SecureElement:%s Reset Successfull\n", __func__);
+    } else {
+        ALOGE("SecureElement:%s Failed to reset\n", __func__);
+    }
+
+    return n;
+}
+
+int SecureElement::cipRequest(){
+    int n;
+
+    isBasicChannelOpen = false;
+    nbrOpenChannel = 0;
+
+    ALOGD("SecureElement:%s se_gto_cip start", __func__);
+    n = se_gto_cip(ctx, atr, sizeof(atr));
     if (n >= 0) {
         atr_size = n;
-        ALOGD("SecureElement:%s received ATR of %d bytes\n", __func__, n);
-        dump_bytes("ATR: ", ':',  atr, n, stdout);
+        ALOGD("SecureElement:%s received ATR (CIP) of %d bytes\n", __func__, n);
+        dump_bytes("ATR (CIP): ", ':',  atr, n, stdout);
     } else {
-        ALOGE("SecureElement:%s Failed to reset and get ATR: %s\n", __func__, strerror(errno));
+        ALOGE("SecureElement:%s Failed to reset and get ATR (CIP): %s\n", __func__, strerror(errno));
     }
 
     return n;
@@ -148,10 +168,16 @@ Return<void> SecureElement::init(const sp<::android::hardware::secure_element::V
 
     if (initializeSE() != EXIT_SUCCESS) {
         ALOGE("SecureElement:%s initializeSE Failed", __func__);
-        clientCallback->onStateChange(false);
+        auto ret = clientCallback->onStateChange(false);
+        if (!ret.isOk()) {
+            ALOGW("failed to send onStateChange event!");
+        }
     } else {
         ALOGD("SecureElement:%s initializeSE Success", __func__);
-        clientCallback->onStateChange(true);
+        auto ret = clientCallback->onStateChange(true);
+        if (!ret.isOk()) {
+            ALOGW("failed to send onStateChange event!");
+        }
     }
 
     ALOGD("SecureElement:%s end", __func__);
@@ -175,10 +201,16 @@ Return<void> SecureElement::init_1_1(const sp<::android::hardware::secure_elemen
 
     if (initializeSE() != EXIT_SUCCESS) {
         ALOGE("SecureElement:%s initializeSE Failed", __func__);
-        clientCallback->onStateChange_1_1(false, "SE Initialized failed");
+        auto ret = clientCallback->onStateChange_1_1(false, "SE Initialized failed");
+        if (!ret.isOk()) {
+            ALOGW("failed to send onStateChange event!");
+        }
     } else {
         ALOGD("SecureElement:%s initializeSE Success", __func__);
-        clientCallback->onStateChange_1_1(true, "SE Initialized");
+        auto ret = clientCallback->onStateChange_1_1(true, "SE Initialized");
+        if (!ret.isOk()) {
+            ALOGW("failed to send onStateChange event!");
+        }
     }
 
     ALOGD("SecureElement:%s end", __func__);
@@ -247,12 +279,7 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
-            if(internalClientCallback_v1_1 != nullptr) {
-                internalClientCallback_v1_1->onStateChange_1_1(false, "SE Initialized failed");
-            }
-            else {
-                internalClientCallback->onStateChange(false);
-            }
+            notify(false, "SE Initialized failed");
             _hidl_cb(resApduBuff, SecureElementStatus::IOERROR);
             return Void();
         }
@@ -447,12 +474,7 @@ Return<void> SecureElement::openBasicChannel(const hidl_vec<uint8_t>& aid, uint8
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
-            if(internalClientCallback_v1_1 != nullptr) {
-                internalClientCallback_v1_1->onStateChange_1_1(false, "SE Initialized failed");
-            }
-            else {
-                internalClientCallback->onStateChange(false);
-            }
+            notify(false, "SE Initialized failed");
             _hidl_cb(result, SecureElementStatus::IOERROR);
             return Void();
         }
@@ -610,6 +632,22 @@ Return<::android::hardware::secure_element::V1_0::SecureElementStatus> SecureEle
     }
     ALOGD("SecureElement:%s end", __func__);
     return mSecureElementStatus;
+}
+
+void
+SecureElement::notify(bool state, const char *message)
+{
+    if (internalClientCallback_v1_1 != nullptr) {
+        auto ret = internalClientCallback_v1_1->onStateChange_1_1(state, message);
+        if (!ret.isOk()) {
+            ALOGW("failed to send onStateChange event!");
+        }
+    } else {
+        auto ret = internalClientCallback->onStateChange(state);
+        if (!ret.isOk()) {
+            ALOGW("failed to send onStateChange event!");
+        }
+    }
 }
 
 void
@@ -781,11 +819,7 @@ SecureElement::deinitializeSE() {
     if(checkSeUp){
         if (se_gto_close(ctx) < 0) {
             mSecureElementStatus = SecureElementStatus::FAILED;
-            if (internalClientCallback_v1_1 != nullptr) {
-                internalClientCallback_v1_1->onStateChange_1_1(false, "SE Initialized failed");
-            } else {
-                internalClientCallback->onStateChange(false);
-            }
+            notify(false, "SE Initialized failed");
         } else {
             ctx = NULL;
             mSecureElementStatus = SecureElementStatus::SUCCESS;
@@ -807,25 +841,19 @@ SecureElement::reset() {
 
     SecureElementStatus status = SecureElementStatus::FAILED;
 
+    int ret = 0;
+
     ALOGD("SecureElement:%s start", __func__);
 
     if (deinitializeSE() != SecureElementStatus::SUCCESS) {
         ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
     }
 
-    if (internalClientCallback_v1_1 != nullptr) {
-        internalClientCallback_v1_1->onStateChange_1_1(false, "reset the SE");
-    } else {
-        internalClientCallback->onStateChange(false);
-    }
+    notify(false, "reset the SE");
 
-    if(initializeSE() == EXIT_SUCCESS) {
+    if (initializeSE() == EXIT_SUCCESS) {
+        notify(true, "SE Initialized");
         status = SecureElementStatus::SUCCESS;
-        if (internalClientCallback_v1_1 != nullptr) {
-            internalClientCallback_v1_1->onStateChange_1_1(true, "SE Initialized");
-        } else {
-            internalClientCallback->onStateChange(true);
-        }
     }
 
     ALOGD("SecureElement:%s end", __func__);

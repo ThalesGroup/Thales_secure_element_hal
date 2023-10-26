@@ -11,7 +11,7 @@ cc_binary {
 
     shared_libs: [
         "android.hardware.secure_element@1.0",
-        "android.hardware.secure_element.thales.libse",
+        "android.hardware.secure_element.thales.libse-gp",
         "libbase",
         "libcutils",
         "libhardware",

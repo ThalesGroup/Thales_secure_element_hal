@@ -12,7 +12,7 @@ cc_binary {
     shared_libs: [
         "libbinder_ndk",
         "android.hardware.secure_element-V1-ndk",
-        "android.hardware.secure_element.thales.libse",
+        "android.hardware.secure_element.thales.libse-gp",
         "libbase",
         "libcutils",
         "libhardware",

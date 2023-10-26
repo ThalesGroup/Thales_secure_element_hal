@@ -29,8 +29,6 @@
 extern "C" {
 #endif
 
-#define LOG_TAG "THALES_HAL"
-
 /**
  * library user context - reads the config and system
  * environment, user variables, allows custom logging.
@@ -151,7 +149,17 @@ void se_gto_set_gtodev(struct se_gto_ctx *ctx, const char *gtodev);
 
 /****************************** APDU protocol *******************************/
 
-/** Send reset command to Secure Element and return ATR bytes.
+/** Send reset command to Secure Element.
+ *
+ * @param ctx se-gto library context
+ *
+ * @c errno is set on error.
+ *
+ * @returns -1 on error.
+ */
+int se_gto_reset(struct se_gto_ctx *ctx);
+
+/** Send cip command to Secure Element and return ATR bytes.
  *
  * @param ctx se-gto library context
  * @param atr byte buffer to receive ATR content
@@ -161,7 +169,7 @@ void se_gto_set_gtodev(struct se_gto_ctx *ctx, const char *gtodev);
  *
  * @returns number of bytes in @c atr buffer or -1 on error.
  */
-int se_gto_reset(struct se_gto_ctx *ctx, void *atr, size_t r);
+int se_gto_cip(struct se_gto_ctx *ctx, void *atr, size_t r);
 
 /** Transmit APDU to Secure Element
  *

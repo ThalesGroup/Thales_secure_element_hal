@@ -60,6 +60,7 @@ struct SecureElement : public ISecureElement , public hidl_death_recipient {
     static int toint(char c);
     static void dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FILE *out);
     int resetSE();
+    int cipRequest();
     int openConfigFile(int verbose);
     int parseConfigFile(FILE *f, int verbose);
 };

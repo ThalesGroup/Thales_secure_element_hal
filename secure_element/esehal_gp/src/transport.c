@@ -36,7 +36,7 @@
 #define NSEC_PER_SEC  1000000000L
 #define NSEC_PER_MSEC 1000000L
 
-#define ESE_NAD 0x21
+#define ESE_NAD 0x12
 
 /* < 0 if t1 < t2,
  * > 0 if t1 > t2,
@@ -96,7 +96,7 @@ crc_length(struct t1_state *t1)
 int
 block_send(struct t1_state *t1, const void *block, size_t n)
 {
-    if (n < 4)
+    if (n < 6)
         return -EINVAL;
 
     return spi_write(t1->spi_fd, block, n);
@@ -113,7 +113,7 @@ block_recv(struct t1_state *t1, void *block, size_t n)
 
     struct timespec ts, ts_timeout;
 
-    if (n < 4)
+    if (n < 6)
         return -EINVAL;
 
     fd = t1->spi_fd;
@@ -144,8 +144,8 @@ block_recv(struct t1_state *t1, void *block, size_t n)
 
     s[i++] = c;
 
-    /* Minimal length is 3 + sizeof(checksum) */
-    max = 2 + crc_length(t1);
+    /* Minimal length is 4 + sizeof(checksum)2 */
+    max = 3 + crc_length(t1);
     len = spi_read(fd, s + 1, max);
     if (len < 0)
         return len;
@@ -153,13 +153,13 @@ block_recv(struct t1_state *t1, void *block, size_t n)
     i += len;
 
     /* verify that buffer is large enough. */
-    max += s[2];
+    max += (s[3] | s[2] << 8);
     if ((size_t)max > n)
         return -ENOMEM;
 
     /* get block remaining if present */
-    if (s[2]) {
-        len = spi_read(fd, s + 4, s[2]);
+    if ((s[3] | s[2] << 8)) {
+        len = spi_read(fd, s + 6, (s[3] | s[2] << 8));
         if (len < 0)
             return len;
     }

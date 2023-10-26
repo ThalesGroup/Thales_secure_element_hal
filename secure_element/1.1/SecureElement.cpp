@@ -69,13 +69,30 @@ int SecureElement::resetSE(){
     nbrOpenChannel = 0;
 
     ALOGD("SecureElement:%s se_gto_reset start", __func__);
-    n = se_gto_reset(ctx, atr, sizeof(atr));
+    n = se_gto_reset(ctx);
+    if (n >= 0) {
+        ALOGD("SecureElement:%s Reset Successfull\n", __func__);
+    } else {
+        ALOGE("SecureElement:%s Failed to reset\n", __func__);
+    }
+
+    return n;
+}
+
+int SecureElement::cipRequest(){
+    int n;
+
+    isBasicChannelOpen = false;
+    nbrOpenChannel = 0;
+
+    ALOGD("SecureElement:%s se_gto_cip start", __func__);
+    n = se_gto_cip(ctx, atr, sizeof(atr));
     if (n >= 0) {
         atr_size = n;
-        ALOGD("SecureElement:%s received ATR of %d bytes\n", __func__, n);
-        dump_bytes("ATR: ", ':',  atr, n, stdout);
+        ALOGD("SecureElement:%s received ATR (CIP) of %d bytes\n", __func__, n);
+        dump_bytes("ATR (CIP): ", ':',  atr, n, stdout);
     } else {
-        ALOGE("SecureElement:%s Failed to reset and get ATR: %s\n", __func__, strerror(errno));
+        ALOGE("SecureElement:%s Failed to reset and get ATR (CIP): %s\n", __func__, strerror(errno));
     }
 
     return n;

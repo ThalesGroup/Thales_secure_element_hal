@@ -10,7 +10,6 @@
  * See the License for the specific language governing permissions and limitations under the License.
 
  ****************************************************************************/
-
 /**
  * @file
  * $Author$
@@ -27,13 +26,38 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <linux/se_gemalto.h>
+//#include <linux/se_gemalto.h>
 
 #include "libse-gto-private.h"
+#include "compiler.h"
 #include "spi.h"
+
+#include <linux/spi/spidev.h>
 
 #define USE_OPEN_RETRY
 #define MAX_RETRY_CNT 10
+
+int
+spi_set_speed(struct se_gto_ctx *ctx, uint32_t speed)
+{
+    int status = -1;
+    //----- SET SPI BUS SPEED -----
+    //unsigned int spi_speed;
+    //spi_speed = 5000000;		//1000000 = 1MHz (1uS per bit)
+
+    status = ioctl(ctx->t1.spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
+    if(status < 0)
+    {
+      err("Could not set SPI speed (WR)...ioctl fail");
+    }
+    status = ioctl(ctx->t1.spi_fd, SPI_IOC_RD_MAX_SPEED_HZ, &speed);
+    if(status < 0)
+    {
+      err("Could not set SPI speed (RD)...ioctl fail");
+    }
+    warn("SPI HW Set speed status = %d", status);
+    return status;
+}
 
 int
 spi_setup(struct se_gto_ctx *ctx)
@@ -62,6 +86,7 @@ retry:
          return -1;
      }
 #endif
+    spi_set_speed(ctx, 5000000);
      return ctx->t1.spi_fd < 0;
 }
 

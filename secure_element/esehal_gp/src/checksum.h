@@ -17,30 +17,24 @@
  * $Revision$
  * $Date$
  *
- * Compiler specific definition. Currently target gcc and clang.
- *
- * We need offsetof() and containerof().
+ * T=1 checksum algorithms.
  *
  */
 
-#ifndef COMPILER_H
-#define COMPILER_H
+#ifndef CHECKSUM_H
+#define CHECKSUM_H
 
-#include <stdint.h>
-# include <stddef.h>
+/* Both function return checksum.
+ *
+ * When computing checksum. caller is responsible to store value at block end.
+ * In case of CRC16, this is lowest byte first, followed by higher byte.
+ *
+ * When verifying checksum, function returns zero for a correct checksum.
+ *
+ */
 
-#define container_of(ptr, type, member)                  \
-    ({ const typeof(((type *)0)->member) * __mp = (ptr); \
-       (type *)((char *)__mp - offsetof(type, member)); })
+unsigned lrc8(const void *s, size_t n);
+unsigned crc_ccitt(uint16_t crc,  const void *s, size_t n);
+unsigned crc16_x25(uint16_t wCrc, uint8_t* pData, uint32_t length);
 
-#define __COMPILE_ASSERT(cond) ((void)sizeof(char[1 - 2 * !(cond)]))
-#define _COMPILE_ASSERT(cond) __COMPILE_ASSERT(cond)
-#define COMPILE_ASSERT(cond) _COMPILE_ASSERT(!!(cond))
-
-#ifdef __GNUC__
-# define check_printf(f, v) __attribute__((format(printf, f, v)))
-#else
-# define check_printf(f, v)
-#endif
-
-#endif /* ifndef COMPILER_H */
+#endif /* CHECKSUM_H */

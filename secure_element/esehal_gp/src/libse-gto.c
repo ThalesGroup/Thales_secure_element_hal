@@ -21,22 +21,19 @@
  *
  */
 
-#include <ctype.h>
-#include <cutils/properties.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <log/log.h>
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
+#include <stddef.h>
+#include <stdarg.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdint.h>
+#include <fcntl.h>
 
-#include "libse-gto-private.h"
 #include "se-gto/libse-gto.h"
+#include "libse-gto-private.h"
 #include "spi.h"
 
 #define SE_GTO_GTODEV "/dev/gto"
@@ -84,8 +81,7 @@ log_level(const char *priority)
 static void
 log_stderr(struct se_gto_ctx *ctx, const char *s)
 {
-    //fputs(s, stderr);
-    ALOGD("%s",s);
+    fputs(s, stderr);
 }
 
 SE_GTO_EXPORT int
@@ -159,7 +155,7 @@ se_gto_set_gtodev(struct se_gto_ctx *ctx, const char *gtodev)
 }
 
 SE_GTO_EXPORT int
-se_gto_reset(struct se_gto_ctx *ctx, void *atr, size_t r)
+se_gto_reset(struct se_gto_ctx *ctx)
 {
     int err;
 
@@ -167,6 +163,18 @@ se_gto_reset(struct se_gto_ctx *ctx, void *atr, size_t r)
     if (err < 0) {
         errno = -err;
         ctx->check_alive = 1;
+    }
+    return err;
+}
+
+SE_GTO_EXPORT int
+se_gto_cip(struct se_gto_ctx *ctx, void *atr, size_t r)
+{
+    int err;
+
+    err = isot1_cip(&ctx->t1);
+    if (err < 0) {
+        errno = -err;
     }
     else {
         err = isot1_get_atr(&ctx->t1, atr, r);
@@ -184,16 +192,14 @@ se_gto_apdu_transmit(struct se_gto_ctx *ctx, const void *apdu, int n, void *resp
         return -1;
     }
     r = isot1_transceive(&ctx->t1, apdu, n, resp, r);
-    dbg("isot1_transceive: r=%d\n", r);
-    dbg("isot1_transceive: ctx->t1.recv.end - ctx->t1.recv.start = %ld\n", ctx->t1.recv.end - ctx->t1.recv.start);
-    dbg("isot1_transceive: ctx->t1.recv.size = %zu\n", ctx->t1.recv.size);
-    dbg("isot1_transceive: ctx->t1.buf[2] = %02X\n", ctx->t1.buf[2]);
     if (r < 0) {
         errno = -r;
         err("failed to read APDU response, %s\n", strerror(-r));
     } else if (r < 2) {
         err("APDU response too short, only %d bytes, needs 2 at least\n", r);
     }
+	if (r == -0xDEAD)
+        return -0xDEAD;
     if (r < 2){
         ctx->check_alive = 1;
         return -1;
@@ -213,17 +219,9 @@ se_gto_open(struct se_gto_ctx *ctx)
 
     ctx->check_alive = 0;
 
-    isot1_bind(&ctx->t1, 0x2, 0x1);
+    isot1_bind(&ctx->t1, 0x1, 0x2);
 
     dbg("fd: spi=%d\n", ctx->t1.spi_fd);
-    return 0;
-}
-
-int se_gto_Spi_Reset(struct se_gto_ctx *ctx)
-{
-    /**
-	* @Todo: Add proprietary SPI Reset code here
-	**/
     return 0;
 }
 
@@ -235,13 +233,9 @@ int gtoSPI_checkAlive(struct se_gto_ctx *ctx)
   unsigned char resp[258] = {0,};
 
   /*Check Alive implem*/
-  for(int count = 0; count < 3; count++) {
-      ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
-      if(ret < 0){
-        if (count == 2) return -1;
-        /*Run SPI reset*/
-        se_gto_Spi_Reset(ctx);
-      }
+  ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
+  if(ret < 0){
+    return -1;
   }
 
   return 0;
@@ -252,13 +246,13 @@ se_gto_close(struct se_gto_ctx *ctx)
 {
     int status = 0;
 
-    if(ctx) dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
+    dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
     if (ctx->check_alive == 1)
         if (gtoSPI_checkAlive(ctx) != 0) status = 0xDEAD;
 
     (void)isot1_release(&ctx->t1);
     (void)spi_teardown(ctx);
     log_teardown(ctx);
-    if(ctx) free(ctx);
+    free(ctx);
     return status;
 }

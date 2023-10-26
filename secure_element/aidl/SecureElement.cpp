@@ -75,13 +75,30 @@ int SecureElement::resetSE(){
     nbrOpenChannel = 0;
 
     ALOGD("SecureElement:%s se_gto_reset start", __func__);
-    n = se_gto_reset(ctx, atr, sizeof(atr));
+    n = se_gto_reset(ctx);
+    if (n >= 0) {
+        ALOGD("SecureElement:%s Reset Successfull\n", __func__);
+    } else {
+        ALOGE("SecureElement:%s Failed to reset\n", __func__);
+    }
+
+    return n;
+}
+
+int SecureElement::cipRequest(){
+    int n;
+
+    isBasicChannelOpen = false;
+    nbrOpenChannel = 0;
+
+    ALOGD("SecureElement:%s se_gto_cip start", __func__);
+    n = se_gto_cip(ctx, atr, sizeof(atr));
     if (n >= 0) {
         atr_size = n;
-        ALOGD("SecureElement:%s received ATR of %d bytes\n", __func__, n);
-        dump_bytes("ATR: ", ':',  atr, n, stdout);
+        ALOGD("SecureElement:%s received ATR (CIP) of %d bytes\n", __func__, n);
+        dump_bytes("ATR (CIP): ", ':',  atr, n, stdout);
     } else {
-        ALOGE("SecureElement:%s Failed to reset and get ATR: %s\n", __func__, strerror(errno));
+        ALOGE("SecureElement:%s Failed to reset and get ATR (CIP): %s\n", __func__, strerror(errno));
     }
 
     return n;
@@ -114,13 +131,9 @@ int SecureElement::initializeSE() {
         return EXIT_FAILURE;
     }
 
-    ret = resetSE();
+    ret = cipRequest();
 
-    if (ret < 0 && (strncmp(ese_flag_name, "eSE2", 4) == 0)) {
-        sleep(6);
-        ALOGE("SecureElement:%s retry resetSE", __func__);
-        ret = resetSE();
-    }
+
     if (ret < 0) {
         se_gto_close(ctx);
         ctx = NULL;
@@ -145,10 +158,10 @@ ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>&
 
     if (initializeSE() != EXIT_SUCCESS) {
         ALOGE("SecureElement:%s initializeSE Failed", __func__);
-        clientCallback->onStateChange(false, "SE Initialized failed");
+        notify(false, "SE Initialized failed");
     } else {
         ALOGD("SecureElement:%s initializeSE Success", __func__);
-        clientCallback->onStateChange(true, "SE Initialized");
+        notify(true, "SE Initialized");
     }
 
     ALOGD("SecureElement:%s end", __func__);
@@ -224,7 +237,7 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
-            internalClientCallback->onStateChange(false, "SE Initialized failed");
+            notify(false, "SE Initialized failed");
             return ScopedAStatus::fromServiceSpecificError(IOERROR);
         }
     }
@@ -421,7 +434,7 @@ ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, i
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
-            internalClientCallback->onStateChange(false, "SE Initialized failed");
+            notify(false, "SE Initialized failed");
             return ScopedAStatus::fromServiceSpecificError(IOERROR);
         }
     }
@@ -582,6 +595,15 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
 }
 
 void
+SecureElement::notify(bool state, const char *message)
+{
+    auto ret = internalClientCallback->onStateChange(state, message);
+    if (!ret.isOk()) {
+        ALOGW("failed to send onStateChange event!");
+    }
+}
+
+void
 SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FILE *out)
 {
     const uint8_t *s = p;
@@ -733,7 +755,7 @@ int SecureElement::deinitializeSE() {
     if(checkSeUp){
         if (se_gto_close(ctx) < 0) {
             mSecureElementStatus = FAILED;
-            internalClientCallback->onStateChange(false, "SE Initialized failed");
+            notify(false, "SE Initialized failed");
         } else {
             ctx = NULL;
             mSecureElementStatus = SUCCESS;
@@ -753,17 +775,24 @@ int SecureElement::deinitializeSE() {
 ScopedAStatus SecureElement::reset() {
 
     int status = FAILED;
+
+    int ret = 0;
+
     ALOGD("SecureElement:%s start", __func__);
 
     if (deinitializeSE() != SUCCESS) {
         ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
     }
 
-    internalClientCallback->onStateChange(false, "reset the SE");
+    if (internalClientCallback == nullptr) {
+        return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
 
-    if(initializeSE() == EXIT_SUCCESS) {
+    notify(false, "reset the SE");
+
+    if (initializeSE() == EXIT_SUCCESS) {
+        notify(true, "SE Initialized");
         status = SUCCESS;
-        internalClientCallback->onStateChange(true, "SE Initialized");
     }
 
     ALOGD("SecureElement:%s end", __func__);

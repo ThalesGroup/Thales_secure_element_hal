@@ -24,28 +24,23 @@
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <ctype.h>
-#include <stdint.h>
-#include <fcntl.h>
-#include <log/log.h>
 
 #include "iso7816_t1.h"
 #include "checksum.h"
 #include "transport.h"
+#include <stdio.h>
 
-#define T1_REQUEST_RESYNC 0x00
-#define T1_REQUEST_IFS    0x01
-#define T1_REQUEST_ABORT  0x02
-#define T1_REQUEST_WTX    0x03
-#define T1_REQUEST_RESET  0x05 /* Custom RESET for SPI version */
+#define T1_REQUEST_RESYNC     0x00
+#define T1_REQUEST_IFS        0x01
+#define T1_REQUEST_ABORT      0x02
+#define T1_REQUEST_WTX        0x03
+#define T1_REQUEST_CIP        0x04
+#define T1_REQUEST_RELEASE    0x05 /* Custom RESET for SPI version */
+#define T1_REQUEST_SWR        0x0F
 
 #define MAX_RETRIES 3
 
-#define MAX_WTX_ROUNDS 200
+#define MAX_WTX_ROUNDS 3
 
 #define WTX_MAX_VALUE 1
 
@@ -66,6 +61,7 @@ static void
 t1_recv_window_append(struct t1_state *t1, const void *buf, int n)
 {
     ptrdiff_t free = t1_recv_window_free_size(t1);
+
     if (n > free)
         n = (int)free;
     if (n > 0) {
@@ -109,7 +105,7 @@ t1_close_send_window(struct t1_state *t1)
 static int
 do_chk(struct t1_state *t1, uint8_t *buf)
 {
-    int n = 3 + buf[2];
+    int n = 4 + (buf[3] | buf[2] << 8);
 
     switch (t1->chk_algo) {
         case CHECKSUM_LRC:
@@ -118,7 +114,7 @@ do_chk(struct t1_state *t1, uint8_t *buf)
             break;
 
         case CHECKSUM_CRC: {
-            uint16_t crc = crc_ccitt(0xFFFF, buf, n);
+            uint16_t crc = crc16_x25(0xFFFF, buf, n);
             buf[n++] = (uint8_t)(crc >> 8);
             buf[n++] = (uint8_t)(crc);
             break;
@@ -130,7 +126,7 @@ do_chk(struct t1_state *t1, uint8_t *buf)
 static int
 chk_is_good(struct t1_state *t1, const uint8_t *buf)
 {
-    int n = 3 + buf[2];
+    int n = 4 + (buf[3] | buf[2] << 8);
     int match;
 
     switch (t1->chk_algo) {
@@ -139,7 +135,7 @@ chk_is_good(struct t1_state *t1, const uint8_t *buf)
             break;
 
         case CHECKSUM_CRC: {
-            uint16_t crc = crc_ccitt(0xFFFF, buf, n);
+            uint16_t crc = crc16_x25(0xFFFF, buf, n);
             match = (crc == (buf[n + 1] | (buf[n] << 8)));
             break;
         }
@@ -170,8 +166,9 @@ write_iblock(struct t1_state *t1, uint8_t *buf)
 
     buf[0] = t1->nad;
     buf[1] = pcb;
-    buf[2] = (uint8_t)n;
-    memcpy(buf + 3, t1->send.start, (size_t)n);
+    buf[2] = (uint8_t)n >> 8;
+    buf[3] = (uint8_t)n;
+    memcpy(buf + 4, t1->send.start, (size_t)n);
     return do_chk(t1, buf);
 }
 
@@ -183,28 +180,52 @@ write_rblock(struct t1_state *t1, int n, uint8_t *buf)
     if (t1->recv.next)
         buf[1] |= 0x10;
     buf[2] = 0;
+    buf[3] = 0;
     return do_chk(t1, buf);
 }
 
 static int
 write_request(struct t1_state *t1, int request, uint8_t *buf)
 {
+    uint8_t tmp[2] = {0x00, 0x00};
     buf[0] = t1->nad;
     buf[1] = 0xC0 | request;
 
     request &= 0x1F;
     if (T1_REQUEST_IFS == request) {
         /* On response, resend card IFS, else this is request for device IFS */
-        buf[2] = 1;
-        if (buf[1] & 0x20)
-            buf[3] = t1->ifsc;
-        else
-            buf[3] = t1->ifsd;
-    } else if (T1_REQUEST_WTX == request) {
-        buf[2] = 1;
-        buf[3] = t1->wtx;
-    } else
         buf[2] = 0;
+        buf[3] = 1;//todo : DONE
+        if (buf[1] & 0x20) {
+            tmp[1] = (uint8_t) t1->ifsc;
+            tmp[0] = (uint8_t) t1->ifsc >> 8;
+            if (tmp[0] == 0x00)
+                buf[4] = t1->ifsc;
+            else {
+                buf[4] = tmp[0];
+                buf[5] = tmp[1];
+                buf[3] = 2;
+            }
+        }
+        else {
+            tmp[1] = (uint8_t) t1->ifsd;
+            tmp[0] = (uint8_t) t1->ifsd >> 8;
+            if (tmp[0] == 0x00)
+                buf[4] = t1->ifsd;
+            else {
+                buf[4] = tmp[0];
+                buf[5] = tmp[1];
+                buf[3] = 2;
+            }
+        }
+    } else if (T1_REQUEST_WTX == request) {
+        buf[2] = 0;
+        buf[3] = 1;
+        buf[4] = t1->wtx;
+    } else {
+        buf[2] = 0;
+        buf[3] = 0;
+    }
 
     return do_chk(t1, buf);
 }
@@ -231,8 +252,8 @@ parse_iblock(struct t1_state *t1, uint8_t *buf)
 
     if (t1->recv.next == next) {
         t1->recv.next ^= 1;
-        t1_recv_window_append(t1, buf + 3, buf[2]);
-        t1->recv_size += buf[2];
+        t1_recv_window_append(t1, buf + 4, (buf[3] | buf[2] << 8));
+        t1->recv_size += (buf[3] | buf[2] << 8);
     }
 
     /* 1 if more to come */
@@ -294,20 +315,29 @@ parse_request(struct t1_state *t1, uint8_t *buf)
     t1->request = request;
     switch (request) {
         case T1_REQUEST_RESYNC:
-            n = -EOPNOTSUPP;
+            if (buf[2] == 0 && buf[3] == 0) {
+                t1->retries--;
+                n = -EREMOTEIO;
+                t1->state.request = 1;
+                t1->request       = T1_REQUEST_RESYNC;
+            } else
+                n = -EBADMSG;
             break;
 
         case T1_REQUEST_IFS:
-            if (buf[2] != 1)
+            if (buf[2] != 0 || buf[3] == 0 || buf[3] > 2 )
                 n = -EBADMSG;
-            else if ((buf[3] == 0) || (buf[3] == 0xFF))
+            else if ((buf[4] == 0 && buf[3] == 1) || (buf[4] >= 0x0F && buf[5] >= 0xFA && buf[3] == 2))
                 n = -EBADMSG;
             else
-                t1->ifsc = buf[3];
+                if (buf[3] == 2)
+                    t1->ifsc = buf[5] | buf[4] << 8;
+                else if (buf[3] == 1)
+                    t1->ifsc = buf[4];
             break;
 
         case T1_REQUEST_ABORT:
-            if (buf[2] == 0) {
+            if (buf[2] == 0 && buf[3] == 0) {
                 t1->state.aborted = 1;
                 t1_close_send_window(t1);
                 t1_close_recv_window(t1);
@@ -316,11 +346,11 @@ parse_request(struct t1_state *t1, uint8_t *buf)
             break;
 
         case T1_REQUEST_WTX:
-            if (buf[2] > 1) {
+            if (buf[2] != 0x00 || buf[3] > 1) {
                 n = -EBADMSG;
                 break;
-            } else if (buf[2] == 1) {
-                t1->wtx = buf[3];
+            } else if (buf[3] == 1) {
+                t1->wtx = buf[4];
                 if (t1->wtx_max_value)
                     if (t1->wtx > WTX_MAX_VALUE)
                         t1->wtx = WTX_MAX_VALUE;
@@ -328,7 +358,7 @@ parse_request(struct t1_state *t1, uint8_t *buf)
                     t1->wtx_rounds--;
                     if (t1->wtx_rounds <= 0) {
                         t1->retries = 0;
-                        n = -EBADE;
+                        n = -ETIMEDOUT;
                     }
                 }
             }
@@ -352,32 +382,18 @@ parse_atr(struct t1_state *t1)
 {
     const uint8_t *atr = t1->atr;
     size_t         n = t1->atr_length;
-    int            c, y, tck, proto = 0, ifsc = -1;
+    int            plp_length = 0, iin_length = 0, ifsc_index = 0, bwt_index = 0;
 
-    /* Parse T0 byte */
-    tck = y = (n > 0 ? atr[0] : 0);
+    /*Fast way to get ifsc*/
+    iin_length = (int) atr[1];
+    plp_length = (int) atr[1 + 1 + iin_length + 1];
+    ifsc_index = 1 + 1 + iin_length + 1 + 1 + plp_length + 1 + 2 ;
+	bwt_index = 1 + 1 + iin_length + 1 + 1 + plp_length + 1 ;
 
-    /* Parse interface bytes */
-    for (size_t j = 1; j < n; j++) {
-        c    = atr[j];
-        tck ^= c;
-
-        if ((y & 0xF0) == 0x80)
-            /* This is TDi byte */
-            y = c, proto |= (1 << (c & 15));
-        else if (y >= 16) {
-            /* First TA for T=1 */
-            if ((ifsc < 0) && ((y & 0x1F) == 0x11))
-                ifsc = c;
-            /* Clear interface byte flag just seen */
-            y &= y - 16;
-        } else /* No more interface bytes */
-            y = -1;
-    }
-
-    /* If TA for T=1 seen and ATR checksum is valid */
-    if ((proto & 2) && (tck == 0))
-        t1->ifsc = (uint8_t)ifsc;
+    if (ifsc_index < t1->atr_length) t1->ifsc = (uint16_t) (atr[ifsc_index] << 8 | atr[ifsc_index + 1] );
+	if (bwt_index < t1->atr_length) t1->bwt = (uint16_t) (atr[bwt_index] << 8 | atr[bwt_index + 1] );
+	//printf("\nifsc = %d\n", t1->ifsc);
+	//printf("\nbwt = %d\n", t1->bwt);
 }
 
 /* 1 if expected response, 0 if reemit I-BLOCK, negative value is error */
@@ -396,17 +412,23 @@ parse_response(struct t1_state *t1, uint8_t *buf)
             r = 1;
             switch (pcb) {
                 case T1_REQUEST_IFS:
-				    t1->need_ifsd_sync = 0;
-                    if ((buf[2] != 1) && (buf[3] != t1->ifsd))
+                    t1->need_ifsd_sync = 0;
+/*                    if ((buf[2] != 1) && (buf[3] != t1->ifsd))
+                        r = -EBADMSG;*/
+                    if (buf[2] != 0 || buf[3] == 0 || buf[3] > 2 )
+                        r = -EBADMSG;
+                    else if ((buf[4] == 0 && buf[3] == 1) || (buf[4] >= 0x0F && buf[5] >= 0xFA && buf[3] == 2))
                         r = -EBADMSG;
                     break;
 
-                case T1_REQUEST_RESET:
+                case T1_REQUEST_SWR: //TODO
                     t1->need_reset = 0;
-                    if (buf[2] <= sizeof(t1->atr)) {
-                        t1->atr_length = buf[2];
-                        if (t1->atr_length)
-                            memcpy(t1->atr, buf + 3, t1->atr_length);
+                    break;
+                case T1_REQUEST_CIP: //TODO
+                    t1->need_cip = 0;
+                    if((buf[3] | buf[2] << 8) > 0 && (buf[3] | buf[2] << 8) <= sizeof(t1->atr)) {
+                        t1->atr_length = (buf[3] | buf[2] << 8);
+                        memcpy(t1->atr, buf + 4, t1->atr_length);
                         parse_atr(t1);
                     } else
                         r = -EBADMSG;
@@ -459,7 +481,7 @@ read_block(struct t1_state *t1)
         if (t1->buf[0] != t1->nadc)
             return -EBADMSG;
 
-        if (t1->buf[2] == 255)
+        if (t1->buf[2] >= 0x0F && t1->buf[3] >= 0xFA)
             return -EBADMSG;
     }
 
@@ -473,17 +495,20 @@ t1_loop(struct t1_state *t1)
     int n = 0;
 
     /* Will happen on first run */
-    if (t1->need_reset) {
+    if (t1->need_cip) {
         t1->state.request = 1;
-        t1->request       = T1_REQUEST_RESET;
-    } else if (t1->need_resync) {
+        t1->request       = T1_REQUEST_CIP;
+    } else if (t1->need_reset) {
+        t1->state.request = 1;
+        t1->request       = T1_REQUEST_SWR;
+    }else if (t1->need_resync) {
         t1->state.request = 1;
         t1->request       = T1_REQUEST_RESYNC;
     }else if(t1->need_ifsd_sync){
-		t1->state.request = 1;
+        t1->state.request = 1;
         t1->request = T1_REQUEST_IFS;
         t1->ifsd    = 254;
-	}
+    }
 
     while (!t1->state.halt && t1->retries) {
         if (t1->state.request)
@@ -573,12 +598,16 @@ t1_loop(struct t1_state *t1)
                         if (t1_recv_window_free_size(t1) == 0)
                             t1->state.halt = 1, n = 0;
                         t1->retries = MAX_RETRIES;
-						if(t1->request       == T1_REQUEST_RESET) {
-							t1->state.request = 1;
+                        if(t1->request       == T1_REQUEST_SWR) {
+                            t1->state.request = 1;
+                            t1->request = T1_REQUEST_CIP;
+                            t1->need_cip = 1;
+                        } else if(t1->request       == T1_REQUEST_CIP) {
+                            t1->state.request = 1;
                             t1->request = T1_REQUEST_IFS;
                             t1->ifsd    = 254;
-							t1->need_ifsd_sync = 1;
-						}
+                            t1->need_ifsd_sync = 1;
+                        }
                         continue;
 
                     default: /* Negative return is error */
@@ -657,17 +686,18 @@ t1_init(struct t1_state *t1)
 {
     t1_clear_states(t1);
 
-    t1->chk_algo = CHECKSUM_LRC;
-    t1->ifsc     = 32;
-    t1->ifsd     = 32;
+    t1->chk_algo = CHECKSUM_CRC;
+    t1->ifsc     = 64;
+    t1->ifsd     = 254;
     t1->bwt      = 300; /* milliseconds */
 
     t1->send.next = 0;
     t1->recv.next = 0;
 
-    t1->need_reset = 1;
+    t1->need_reset  = 1;
     t1->need_resync = 0;
-    t1->spi_fd     = -1;
+    t1->need_cip    = 1;
+    t1->spi_fd      = -1;
 
     t1->wtx_max_rounds = MAX_WTX_ROUNDS;
     t1->wtx_max_value  = 1;
@@ -696,26 +726,53 @@ static int
 t1_reset(struct t1_state *t1);
 
 static int
+t1_cip(struct t1_state *t1);
+
+static int
+t1_resync(struct t1_state *t1);
+
+static int
 t1_transceive(struct t1_state *t1, const void *snd_buf,
               size_t snd_len, void *rcv_buf, size_t rcv_len)
 {
     int n, r;
 
+start:
     t1_clear_states(t1);
 
     t1_init_send_window(t1, snd_buf, snd_len);
     t1_init_recv_window(t1, rcv_buf, rcv_len);
+
 
     n = t1_loop(t1);
     if (n == 0)
         /* Received APDU response */
         n = (int)t1_recv_window_size(t1);
     else if (n < 0  && t1->state.aborted != 1){
-        if (!(t1->state.request == 1 && t1->request == T1_REQUEST_RESET))
+        if (!(t1->state.request == 1 && t1->request == T1_REQUEST_RESYNC) && !(t1->state.request == 1 && t1->request == T1_REQUEST_SWR)&& !(t1->request == T1_REQUEST_WTX))
         {
             /*Request Soft RESET to the secure element*/
-            r = t1_reset(t1);
-            if (r < 0) n = -0xDEAD; /*Fatal error meaning eSE is not responding to reset*/
+            //t1_resync(t1);
+            t1->need_resync = 1;
+			t1->need_reset = 0;
+			t1->need_cip = 0;
+            goto start;
+            /*if (n == 0)
+                n = (int)t1_recv_window_size(t1);
+            else if (n < 0 && t1->state.aborted != 1 && !(t1->state.request == 1 && t1->request == T1_REQUEST_SWR))
+            {
+                r = t1_reset(t1);
+                if (r < 0) n = -0xDEAD;
+            }*/
+        } else
+        {
+            /*Request Soft RESET to the secure element*/
+            if(!(t1->state.request == 1 && t1->request == T1_REQUEST_SWR)) {
+				t1_close_send_window(t1);
+                t1_close_recv_window(t1);
+                r = t1_reset(t1);
+                if (r < 0) n = -0xDEAD; /*Fatal error meaning eSE is not responding to reset*/
+            }
         }
     }
     return n;
@@ -725,6 +782,9 @@ static int
 t1_negotiate_ifsd(struct t1_state *t1, int ifsd)
 {
     t1_clear_states(t1);
+    t1->need_reset = 0;
+    t1->need_resync = 0;
+    t1->need_cip = 0;
     t1->state.request = 1;
 
     t1->request = T1_REQUEST_IFS;
@@ -737,15 +797,42 @@ t1_reset(struct t1_state *t1)
 {
     t1_clear_states(t1);
     t1->need_reset = 1;
+    t1->need_resync = 0;
+    t1->need_cip = 0;
+    return t1_loop(t1);
+}
 
+static int
+t1_cip(struct t1_state *t1)
+{
+    t1_clear_states(t1);
+    t1->need_cip = 1;
+    t1->need_reset = 0;
+    t1->need_resync = 0;
     return t1_loop(t1);
 }
 
 static int
 t1_resync(struct t1_state *t1)
 {
-    t1_clear_states(t1);
+    t1->state.halt    = 0;
+    t1->state.request = 0;
+    t1->state.reqresp = 0;
+    t1->state.badcrc  = 0;
+    t1->state.timeout = 0;
+    t1->state.aborted = 0;
+
+    t1->wtx     = 1;
+    t1->retries = MAX_RETRIES;
+    t1->request = 0xFF;
+
+    t1->wtx_rounds = t1->wtx_max_rounds;
+
+    t1->send.next = 0;
+    t1->recv.next = 0;
     t1->need_resync = 1;
+	t1->need_reset = 0;
+    t1->need_cip = 0;
 
     return t1_loop(t1);
 }
@@ -788,6 +875,12 @@ isot1_reset(struct t1_state *t1)
 }
 
 int
+isot1_cip(struct t1_state *t1)
+{
+    return t1_cip(t1);
+}
+
+int
 isot1_resync(struct t1_state *t1)
 {
     return t1_resync(t1);
@@ -798,8 +891,10 @@ isot1_get_atr(struct t1_state *t1, void *atr, size_t n)
 {
     int r = 0;
 
-    if (t1->need_reset)
-        r = t1_reset(t1);
+    if (t1->need_cip)
+        r = t1_cip(t1);
+                printf("\nr = %d\n", r);
+
     if (r >= 0) {
         if (t1->atr_length <= n) {
             r = t1->atr_length;

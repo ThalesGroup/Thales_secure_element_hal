@@ -33,6 +33,19 @@ using ndk::ScopedAStatus;
 int main() {
   ALOGD("android.hardware.secure_element-service.thales is starting.");
   ALOGD("Thales Secure Element AIDL for eSE1 Service 1.6.0 is starting. libse-gto v1.13");
+  // Ignore this dlopen if libstpreprocess21.so doesn't exist.
+  void* stdll = dlopen("/vendor/lib64/libstpreprocess21.so", RTLD_NOW);
+  if (stdll) {
+    STEsePreProcess fn = (STEsePreProcess)dlsym(stdll, "pre_process");
+    if (fn) {
+      int ret = fn();
+      if (ret == 0) {
+        ALOGD("STEsePreProcess=%d", ret);
+      } else {
+        ALOGE("Error STEsePreProcess=%d", ret);
+      }
+    }
+  }
 
   ABinderProcess_setThreadPoolMaxThreadCount(0);
 

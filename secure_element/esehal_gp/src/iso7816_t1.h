@@ -10,6 +10,7 @@
  * See the License for the specific language governing permissions and limitations under the License.
 
  ****************************************************************************/
+
 /**
  * @file
  * $Author$
@@ -38,8 +39,8 @@ struct t1_state {
         unsigned aborted : 1;   /* Abort was requested            */
     } state;
 
-    uint8_t ifsc; /* IFS for card        */
-    uint8_t ifsd; /* IFS for device      */
+    uint16_t ifsc; /* IFS for card        */
+    uint16_t ifsd; /* IFS for device      */
     uint8_t nad;  /* NAD byte for device */
     uint8_t nadc; /* NAD byte for card   */
     uint8_t wtx;  /* Read timeout scaler */
@@ -55,9 +56,10 @@ struct t1_state {
     int wtx_max_value;  /* Maximum value of WTX supported by host */
 
     uint8_t need_reset; /* Need to send a reset on first start            */
+    uint8_t need_cip; /* Need to send a CIP request on first start            */
     uint8_t need_resync; /* Need to send a reset on first start            */
 	uint8_t need_ifsd_sync; /* Need to send a IFSD request after RESET            */
-    uint8_t atr[32];    /* ISO7816 defines ATR with a maximum of 32 bytes */
+    uint8_t atr[58];    /* ISO7816 defines ATR with a maximum of 58 bytes */
     uint8_t atr_length; /* Never over 32                                  */
 
     /* Emission window */
@@ -97,6 +99,7 @@ int isot1_transceive(struct t1_state *t1, const void *snd_buf,
                      size_t snd_len, void *rcv_buf, size_t rcv_len);
 int isot1_negotiate_ifsd(struct t1_state *t1, int ifsd);
 int isot1_reset(struct t1_state *t1);
+int isot1_cip(struct t1_state *t1);
 int isot1_resync(struct t1_state *t1);
 int isot1_get_atr(struct t1_state *t1, void *atr, size_t n);
 

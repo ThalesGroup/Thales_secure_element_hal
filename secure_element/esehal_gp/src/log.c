@@ -4,7 +4,7 @@
  * This copy is licensed under the Apache License, Version 2.0 (the "License");
  * You may not use this file except in compliance with the License.
  * You may obtain a copy of the License at:
- *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html
+ *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html 
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and limitations under the License.
@@ -66,12 +66,10 @@ vsay(struct se_gto_ctx *ctx, const char *fmt, va_list args)
     if (k >= BUFSIZE)
         k = BUFSIZE - 1;
     buf    = ctx->log_buf;
-    if (k >= 0) {
-        buf[k] = '\000';
-        if ((k > 0 && (buf[k - 1] == '\n')) || (k == (BUFSIZE - 1))) {
-            k = 0;
-            ctx->log_fn(ctx, buf);
-        }
+    buf[k] = '\000';
+    if ((buf[k - 1] == '\n') || (k == (BUFSIZE - 1))) {
+        k = 0;
+        ctx->log_fn(ctx, buf);
     }
 }
 

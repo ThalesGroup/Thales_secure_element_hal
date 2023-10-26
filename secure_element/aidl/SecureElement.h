@@ -43,7 +43,7 @@ struct SecureElement : public BnSecureElement {
     uint8_t nbrOpenChannel = 0;
     bool isBasicChannelOpen = false;
     bool checkSeUp = false;
-    uint8_t atr[32];
+    uint8_t atr[64];
     uint8_t atr_size;
     char config_filename[100];
     char ese_flag_name[5];
@@ -54,8 +54,10 @@ struct SecureElement : public BnSecureElement {
     static int toint(char c);
     static void dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FILE *out);
     int resetSE();
+    int cipRequest();
     int openConfigFile(int verbose);
     int parseConfigFile(FILE *f, int verbose);
+    void notify(bool state, const char *message);
 };
 
 } //se

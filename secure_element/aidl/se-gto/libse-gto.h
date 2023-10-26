@@ -29,8 +29,6 @@
 extern "C" {
 #endif
 
-#define LOG_TAG "THALES_HAL"
-
 /**
  * library user context - reads the config and system
  * environment, user variables, allows custom logging.
@@ -56,7 +54,7 @@ typedef void se_gto_log_fn (struct se_gto_ctx *ctx, const char *s);
  * Use environment variable SE_GTO_LOG to alter default log level globally.
  * SE_GTO_LOG=n with n from 0 to 4, or choice of SE_GTO_LOG to err, info, debug.
  *
- * @return a new se-gto library context
+ * @returns a new se-gto library context
  */
 int se_gto_new(struct se_gto_ctx **ctx);
 
@@ -81,7 +79,7 @@ int se_gto_close(struct se_gto_ctx *ctx);
  *
  * @param ctx: se-gto library context
  *
- * @return the current logging level
+ * @returns the current logging level
  **/
 int se_gto_get_log_level(struct se_gto_ctx *ctx);
 
@@ -136,7 +134,7 @@ void se_gto_set_userdata(struct se_gto_ctx *ctx, void *userdata);
  *
  * @param ctx se-gto library context.
  *
- * @return nul terminated string.
+ * @returns nul terminated string.
  */
 const char *se_gto_get_gtodev(struct se_gto_ctx *ctx);
 
@@ -151,7 +149,17 @@ void se_gto_set_gtodev(struct se_gto_ctx *ctx, const char *gtodev);
 
 /****************************** APDU protocol *******************************/
 
-/** Send reset command to Secure Element and return ATR bytes.
+/** Send reset command to Secure Element.
+ *
+ * @param ctx se-gto library context
+ *
+ * @c errno is set on error.
+ *
+ * @returns -1 on error.
+ */
+int se_gto_reset(struct se_gto_ctx *ctx);
+
+/** Send cip command to Secure Element and return ATR bytes.
  *
  * @param ctx se-gto library context
  * @param atr byte buffer to receive ATR content
@@ -159,9 +167,9 @@ void se_gto_set_gtodev(struct se_gto_ctx *ctx, const char *gtodev);
  *
  * @c errno is set on error.
  *
- * @return number of bytes in @c atr buffer or -1 on error.
+ * @returns number of bytes in @c atr buffer or -1 on error.
  */
-int se_gto_reset(struct se_gto_ctx *ctx, void *atr, size_t r);
+int se_gto_cip(struct se_gto_ctx *ctx, void *atr, size_t r);
 
 /** Transmit APDU to Secure Element
  *
@@ -176,7 +184,7 @@ int se_gto_reset(struct se_gto_ctx *ctx, void *atr, size_t r);
  *
  * @c errno is set on error.
  *
- * @return number of bytes filled in @c resp buffer. -1 on error.
+ * @returns number of bytes filled in @c resp buffer. -1 on error.
  *
  * @resp buffer last two bytes are SW1 and SW2 respectively. Response length
  * will always be at least 2 bytes. Maximum response size will be 257 bytes.
