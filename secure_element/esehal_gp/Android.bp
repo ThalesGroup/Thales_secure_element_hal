@@ -14,6 +14,7 @@ cc_library_shared {
     srcs: [
         "src/checksum.c",
         "src/iso7816_t1.c",
+        "src/gpio_core.c",
         "src/libse-gto.c",
         "src/spi.c",
         "src/transport.c",
@@ -32,6 +33,8 @@ cc_library_shared {
         "-Wno-unused-private-field",
         "-Wno-error",
         "-Wreturn-type",
+        "-DSE_GTO_GPIO_OFFSET=5",
+        "-DGPIO_CHIP_NAME=\"gpiochip2\"",
     ],
 
     shared_libs: [

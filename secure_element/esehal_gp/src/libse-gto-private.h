@@ -44,7 +44,8 @@ struct se_gto_ctx {
     char          *log_buf;
 
     const char *gtodev;
-
+    const char *interrupt_gpio_chipset;
+    int interrupt_gpio_offset;
     void *spi_buffer;
     int   spi_nbuffer;
 

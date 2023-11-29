@@ -38,6 +38,15 @@
 
 #define SE_GTO_GTODEV "/dev/gto"
 
+#ifndef POLL_MODE
+#include "gpio_core.h"
+#endif
+
+#include <sys/ioctl.h>
+// #include <linux/se_gemalto.h>
+
+#include "compiler.h"
+
 SE_GTO_EXPORT void *
 se_gto_get_userdata(struct se_gto_ctx *ctx)
 {
@@ -101,6 +110,10 @@ se_gto_new(struct se_gto_ctx **c)
     ctx->log_fn = log_stderr;
 
     ctx->gtodev = SE_GTO_GTODEV;
+#ifndef POLL_MODE
+	ctx->interrupt_gpio_chipset = SE_GTO_GPIO_CHIP;
+    ctx->interrupt_gpio_offset = SE_GTO_GPIO_OFFSET;
+#endif
 
     ctx->log_level = 2;
     /* environment overwrites config */
@@ -217,6 +230,13 @@ se_gto_open(struct se_gto_ctx *ctx)
         return -1;
     }
 
+#ifndef POLL_MODE
+    if (gpio_interrupt_setup(ctx) < 0) {
+        err("failed to set up interrupt gpio.\n");
+        return -1;
+    }
+#endif
+
     ctx->check_alive = 0;
 
     isot1_bind(&ctx->t1, 0x1, 0x2);
@@ -252,6 +272,9 @@ se_gto_close(struct se_gto_ctx *ctx)
 
     (void)isot1_release(&ctx->t1);
     (void)spi_teardown(ctx);
+#ifndef POLL_MODE
+	(void)gpio_interrupt_teardown(ctx);
+#endif
     log_teardown(ctx);
     free(ctx);
     return status;

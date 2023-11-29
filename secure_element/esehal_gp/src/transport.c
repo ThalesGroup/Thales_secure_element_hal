@@ -33,6 +33,10 @@
 #include "transport.h"
 #include "spi.h"
 
+#ifndef POLL_MODE
+#include "gpio_core.h"
+#endif
+
 #define NSEC_PER_SEC  1000000000L
 #define NSEC_PER_MSEC 1000000L
 
@@ -110,6 +114,7 @@ block_recv(struct t1_state *t1, void *block, size_t n)
     uint8_t *s, i;
     int      len, max;
     long     bwt;
+    int ret = 0;
 
     struct timespec ts, ts_timeout;
 
@@ -119,20 +124,22 @@ block_recv(struct t1_state *t1, void *block, size_t n)
     fd = t1->spi_fd;
     s  = block;
 
-    clock_gettime(CLOCK_MONOTONIC, &ts);
     bwt     = t1->bwt * (t1->wtx ? t1->wtx : 1);
     t1->wtx = 1;
+    i = 0;
+#if defined(POLL_MODE)
+    clock_gettime(CLOCK_MONOTONIC, &ts);
 
     ts_timeout = ts_add_ns(ts, bwt * NSEC_PER_MSEC);
 
     /* Pull every 2ms */
-    i = 0;
     do {
-        /* Wait for 2ms */
+        // Wait for 2ms
         ts = ts_add_ns(ts, 2 * NSEC_PER_MSEC);
         while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL))
             if  (errno != EINTR)
                 break;
+
 
         len = spi_read(fd, &c, 1);
         if (len < 0)
@@ -141,6 +148,20 @@ block_recv(struct t1_state *t1, void *block, size_t n)
         if (ts_compare(&ts, &ts_timeout) >= 0)
             return -ETIMEDOUT;
     } while (c != ESE_NAD);
+
+#else
+    ret = gpio_poll(t1, bwt);
+
+    if(ret == -1){
+        return -EFAULT;
+    } else if (ret == -2){
+        return -ETIMEDOUT;
+    }
+
+    len = spi_read(fd, &c, 1);
+    if (len < 0)
+        return len;
+#endif
 
     s[i++] = c;
 
