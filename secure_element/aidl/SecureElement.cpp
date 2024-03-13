@@ -32,10 +32,6 @@
 
 namespace se {
 
-#ifndef MAX_CHANNELS
-#define MAX_CHANNELS 0x04
-#endif
-
 #ifndef BASIC_CHANNEL
 #define BASIC_CHANNEL 0x00
 #endif
@@ -532,7 +528,7 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
         return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     }
 
-    if ((channelNumber < 0) || (channelNumber >= MAX_CHANNELS)) {
+    if (channelNumber < 0) {
         ALOGE("SecureElement:%s Channel not supported", __func__);
         mSecureElementStatus = FAILED;
     } else if (channelNumber == 0) {
