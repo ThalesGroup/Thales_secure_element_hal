@@ -33,10 +33,6 @@ namespace secure_element {
 namespace V1_2 {
 namespace implementation {
 
-#ifndef MAX_CHANNELS
-#define MAX_CHANNELS 0x04
-#endif
-
 #ifndef BASIC_CHANNEL
 #define BASIC_CHANNEL 0x00
 #endif
@@ -564,7 +560,7 @@ Return<::android::hardware::secure_element::V1_0::SecureElementStatus> SecureEle
         return mSecureElementStatus;
     }
 
-    if ((channelNumber < 0) || (channelNumber >= MAX_CHANNELS)) {
+    if (channelNumber < 0) {
         ALOGE("SecureElement:%s Channel not supported", __func__);
         mSecureElementStatus = SecureElementStatus::FAILED;
     } else if (channelNumber == 0) {

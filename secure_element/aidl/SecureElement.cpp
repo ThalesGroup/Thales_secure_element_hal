@@ -32,10 +32,6 @@
 
 namespace se {
 
-#ifndef MAX_CHANNELS
-#define MAX_CHANNELS 0x04
-#endif
-
 #ifndef BASIC_CHANNEL
 #define BASIC_CHANNEL 0x00
 #endif
@@ -198,8 +194,8 @@ ScopedAStatus SecureElement::transmit(const std::vector<uint8_t>& data, std::vec
             dump_bytes("RESP: ", ':', resp, resp_len, stdout);
             result.resize(resp_len);
             memcpy(&result[0], resp, resp_len);
+            status = ScopedAStatus::ok();
         }
-        status = ScopedAStatus::ok();
     } else {
         ALOGE("SecureElement:%s: transmit failed! No channel is open", __func__);
         status = ScopedAStatus::fromServiceSpecificError(CHANNEL_NOT_AVAILABLE);
@@ -214,6 +210,7 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
     ALOGD("SecureElement:%s start", __func__);
 
     std::vector<uint8_t> resApduBuff;
+    size_t ext_channelNumber = 0xff;
     size_t channelNumber = 0xff;
     memset(&resApduBuff, 0x00, sizeof(resApduBuff));
 
@@ -276,6 +273,11 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
         return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     } else if (resp[resp_len - 2] == 0x90 && resp[resp_len - 1] == 0x00) {
         channelNumber = resp[0];
+        if(channelNumber > 0x03) {
+          ext_channelNumber = 0x40 + channelNumber - 0x04;
+        } else {
+            ext_channelNumber = channelNumber;
+        }
         nbrOpenChannel++;
         mSecureElementStatus = SUCCESS;
     } else {
@@ -309,7 +311,7 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
 
     if (apdu != NULL && resp!=NULL) {
         index = 0;
-        apdu[index++] = channelNumber;
+        apdu[index++] = ext_channelNumber;
         apdu[index++] = 0xA4;
         apdu[index++] = 0x04;
         apdu[index++] = p2;
@@ -350,7 +352,7 @@ send_logical:
             apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
             memset(resp, 0, resp_len);
             memcpy(apdu, getResponse, apdu_len);
-            apdu[0] = channelNumber;
+            apdu[0] = ext_channelNumber;
             goto send_logical;
         }
         else if (resp[resp_len - 2] == 0x6C) {
@@ -532,7 +534,7 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
         return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     }
 
-    if ((channelNumber < 0) || (channelNumber >= MAX_CHANNELS)) {
+    if (channelNumber < 0) {
         ALOGE("SecureElement:%s Channel not supported", __func__);
         mSecureElementStatus = FAILED;
     } else if (channelNumber == 0) {
@@ -545,15 +547,21 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
 
         if (apdu != NULL) {
             uint8_t index = 0;
-
-            apdu[index++] = channelNumber;
+            if(channelNumber > 0x03) {
+              apdu[index++] = 0x40 + channelNumber - 0x04;
+            } else {
+                apdu[index++] = channelNumber;
+            }
             apdu[index++] = 0x70;
             apdu[index++] = 0x80;
             apdu[index++] = channelNumber;
             apdu[index++] = 0x00;
             apdu_len = index;
 
+            dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
             resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
+            if (resp_len >= 0)
+                dump_bytes("RESP: ", ':', resp, resp_len, stdout);
         }
         if (resp_len < 0) {
             mSecureElementStatus = FAILED;
