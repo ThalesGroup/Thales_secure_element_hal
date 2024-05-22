@@ -161,6 +161,8 @@ block_recv(struct t1_state *t1, void *block, size_t n)
     len = spi_read(fd, &c, 1);
     if (len < 0)
         return len;
+    if (c != ESE_NAD)
+        return -EFAULT;
 #endif
 
     s[i++] = c;
