@@ -38,7 +38,7 @@
 
 #define SE_GTO_GTODEV "/dev/gto"
 
-#ifndef POLL_MODE
+#ifdef IRQ_MODE
 #include "gpio_core.h"
 #endif
 
@@ -110,7 +110,7 @@ se_gto_new(struct se_gto_ctx **c)
     ctx->log_fn = log_stderr;
 
     ctx->gtodev = SE_GTO_GTODEV;
-#ifndef POLL_MODE
+#ifdef IRQ_MODE
 	ctx->interrupt_gpio_chipset = SE_GTO_GPIO_CHIP;
     ctx->interrupt_gpio_offset = SE_GTO_GPIO_OFFSET;
 #endif
@@ -230,7 +230,7 @@ se_gto_open(struct se_gto_ctx *ctx)
         return -1;
     }
 
-#ifndef POLL_MODE
+#ifdef IRQ_MODE
     if (gpio_interrupt_setup(ctx) < 0) {
         err("failed to set up interrupt gpio.\n");
         return -1;
@@ -239,7 +239,7 @@ se_gto_open(struct se_gto_ctx *ctx)
 
     ctx->check_alive = 0;
 
-    isot1_bind(&ctx->t1, 0x1, 0x2);
+    isot1_bind(&ctx->t1, 0x2, 0x9);
 
     dbg("fd: spi=%d\n", ctx->t1.spi_fd);
     return 0;
@@ -272,7 +272,7 @@ se_gto_close(struct se_gto_ctx *ctx)
 
     (void)isot1_release(&ctx->t1);
     (void)spi_teardown(ctx);
-#ifndef POLL_MODE
+#ifdef IRQ_MODE
 	(void)gpio_interrupt_teardown(ctx);
 #endif
     log_teardown(ctx);

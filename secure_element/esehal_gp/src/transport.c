@@ -33,14 +33,15 @@
 #include "transport.h"
 #include "spi.h"
 
-#ifndef POLL_MODE
+#ifdef IRQ_MODE
 #include "gpio_core.h"
 #endif
 
 #define NSEC_PER_SEC  1000000000L
 #define NSEC_PER_MSEC 1000000L
 
-#define ESE_NAD 0x12
+#define ESE_NAD 0x29
+#define POLLING_MS 1
 
 /* < 0 if t1 < t2,
  * > 0 if t1 > t2,
@@ -127,15 +128,15 @@ block_recv(struct t1_state *t1, void *block, size_t n)
     bwt     = t1->bwt * (t1->wtx ? t1->wtx : 1);
     t1->wtx = 1;
     i = 0;
-#if defined(POLL_MODE)
+#ifndef IRQ_MODE
     clock_gettime(CLOCK_MONOTONIC, &ts);
 
     ts_timeout = ts_add_ns(ts, bwt * NSEC_PER_MSEC);
 
-    /* Pull every 2ms */
+    /* Pull every POLLING_MS */
     do {
-        // Wait for 2ms
-        ts = ts_add_ns(ts, 2 * NSEC_PER_MSEC);
+        // Wait for POLLING_MS
+        ts = ts_add_ns(ts, POLLING_MS * NSEC_PER_MSEC);
         while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL))
             if  (errno != EINTR)
                 break;

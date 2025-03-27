@@ -1,4 +1,4 @@
-#ifndef POLL_MODE
+#ifdef IRQ_MODE
 #include <linux/gpio.h>
 #include <unistd.h>
 #include <fcntl.h>
