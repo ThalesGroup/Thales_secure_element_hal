@@ -687,7 +687,7 @@ t1_init(struct t1_state *t1)
     t1_clear_states(t1);
 
     t1->chk_algo = CHECKSUM_CRC;
-    t1->ifsc     = 64;
+    t1->ifsc     = 32;
     t1->ifsd     = 254;
     t1->bwt      = 300; /* milliseconds */
 
@@ -715,8 +715,8 @@ t1_release(struct t1_state *t1)
 static void
 t1_bind(struct t1_state *t1, int src, int dst)
 {
-    src &= 7;
-    dst &= 7;
+    src &= 0xF;
+    dst &= 0xF;
 
     t1->nad  = src | (dst << 4);
     t1->nadc = dst | (src << 4);
