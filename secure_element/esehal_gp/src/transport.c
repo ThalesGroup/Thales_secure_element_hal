@@ -40,7 +40,7 @@
 #define NSEC_PER_SEC  1000000000L
 #define NSEC_PER_MSEC 1000000L
 
-#define ESE_NAD 0x29
+#define ESE_NAD 0x92
 #define POLLING_MS 1
 
 /* < 0 if t1 < t2,
