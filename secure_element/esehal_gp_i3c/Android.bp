@@ -1,12 +1,12 @@
 cc_library_shared {
-    name: "android.hardware.secure_element.thales.libse-gp",
+    name: "android.hardware.secure_element.thales.libse-gp-i3c",
     vendor: true,
     srcs: [
         "src/checksum.c",
         "src/iso7816_t1.c",
         "src/gpio_core.c",
         "src/libse-gto.c",
-        "src/spi.c",
+        "src/i3c.c",
         "src/transport.c",
         "src/log.c",
     ],

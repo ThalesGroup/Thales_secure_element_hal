@@ -10,29 +10,31 @@
  * See the License for the specific language governing permissions and limitations under the License.
 
  ****************************************************************************/
-#include "SecureElementHalCallback.h"
 
-namespace android {
-namespace hardware {
-namespace secure_element {
-namespace V1_0 {
-namespace implementation {
+/**
+ * @file
+ * $Author$
+ * $Revision$
+ * $Date$
+ *
+ * T=1 checksum algorithms.
+ *
+ */
 
-// Methods from ::android::hardware::secure_element::V1_0::ISecureElementHalCallback follow.
-Return<void> SecureElementHalCallback::onStateChange(bool connected) {
-    // TODO implement
-    return Void();
-}
+#ifndef CHECKSUM_H
+#define CHECKSUM_H
 
+/* Both function return checksum.
+ *
+ * When computing checksum. caller is responsible to store value at block end.
+ * In case of CRC16, this is lowest byte first, followed by higher byte.
+ *
+ * When verifying checksum, function returns zero for a correct checksum.
+ *
+ */
 
-// Methods from ::android::hidl::base::V1_0::IBase follow.
+unsigned lrc8(const void *s, size_t n);
+unsigned crc_ccitt(uint16_t crc,  const void *s, size_t n);
+unsigned crc16_x25(uint16_t wCrc, uint8_t* pData, uint32_t length);
 
-//ISecureElementHalCallback* HIDL_FETCH_ISecureElementHalCallback(const char* /* name */) {
-    //return new SecureElementHalCallback();
-//}
-//
-}  // namespace implementation
-}  // namespace V1_0
-}  // namespace secure_element
-}  // namespace hardware
-}  // namespace android
+#endif /* CHECKSUM_H */

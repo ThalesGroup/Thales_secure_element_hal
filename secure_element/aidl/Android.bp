@@ -1,8 +1,8 @@
 cc_binary {
-    name: "android.hardware.secure_element-service.thales",
+    name: "android.hardware.secure_element-service.thales-public",
     relative_install_path: "hw",
-    init_rc: ["android.hardware.secure_element_gto.rc"],
-    vintf_fragments: ["android.hardware.secure_element_gto.xml"],
+    init_rc: ["android.hardware.secure_element_gto_public.rc"],
+    vintf_fragments: ["android.hardware.secure_element_gto_public.xml"],
     vendor: true,
     srcs: [
         "SecureElement.cpp",
@@ -12,7 +12,7 @@ cc_binary {
     shared_libs: [
         "libbinder_ndk",
         "android.hardware.secure_element-V1-ndk",
-        "android.hardware.secure_element.thales.libse-gp",
+        "android.hardware.secure_element.thales.libse-gp-i3c",
         "libbase",
         "libcutils",
         "libhardware",
