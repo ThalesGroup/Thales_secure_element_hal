@@ -518,8 +518,26 @@ send_basic:
         else if (resp[resp_len - 2] == 0x68 && resp[resp_len - 1] == 0x81) {
             mSecureElementStatus = CHANNEL_NOT_AVAILABLE;
         }
-        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x81) {
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x80) {
             mSecureElementStatus = CHANNEL_NOT_AVAILABLE;
+        }
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x81) {
+            mSecureElementStatus = IOERROR;
+        }
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x82) {
+            mSecureElementStatus = NO_SUCH_ELEMENT_ERROR;
+        }
+        else if (resp[resp_len - 2] == 0x69 && resp[resp_len - 1] == 0x85) {
+            mSecureElementStatus = NO_SUCH_ELEMENT_ERROR;
+        }
+        else if (resp[resp_len - 2] == 0x69 && resp[resp_len - 1] == 0x99) {
+            mSecureElementStatus = NO_SUCH_ELEMENT_ERROR;
+        }
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x86) {
+            mSecureElementStatus = UNSUPPORTED_OPERATION;
+        }
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x87) {
+            mSecureElementStatus = UNSUPPORTED_OPERATION;
         }
     }
 
