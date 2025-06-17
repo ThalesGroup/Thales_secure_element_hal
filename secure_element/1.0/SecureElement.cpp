@@ -355,10 +355,10 @@ send_logical:
             mSecureElementStatus = SecureElementStatus::NO_SUCH_ELEMENT_ERROR;
         }
         else if (resp[resp_len - 2] == 0x69 && resp[resp_len - 1] == 0x85) {
-            mSecureElementStatus = NO_SUCH_ELEMENT_ERROR;
+            mSecureElementStatus = SecureElementStatus::NO_SUCH_ELEMENT_ERROR;
         }
         else if (resp[resp_len - 2] == 0x69 && resp[resp_len - 1] == 0x99) {
-            mSecureElementStatus = NO_SUCH_ELEMENT_ERROR;
+            mSecureElementStatus = SecureElementStatus::NO_SUCH_ELEMENT_ERROR;
         }
         else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x86) {
             mSecureElementStatus = SecureElementStatus::UNSUPPORTED_OPERATION;
@@ -481,8 +481,26 @@ send_basic:
         else if (resp[resp_len - 2] == 0x68 && resp[resp_len - 1] == 0x81) {
             mSecureElementStatus = SecureElementStatus::CHANNEL_NOT_AVAILABLE;
         }
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x80) {
+            mSecureElementStatus = SecureElementStatus::IOERROR;
+        }
         else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x81) {
-            mSecureElementStatus = SecureElementStatus::CHANNEL_NOT_AVAILABLE;
+            mSecureElementStatus = SecureElementStatus::IOERROR;
+        }
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x82) {
+            mSecureElementStatus = SecureElementStatus::NO_SUCH_ELEMENT_ERROR;
+        }
+        else if (resp[resp_len - 2] == 0x69 && resp[resp_len - 1] == 0x85) {
+            mSecureElementStatus = SecureElementStatus::NO_SUCH_ELEMENT_ERROR;
+        }
+        else if (resp[resp_len - 2] == 0x69 && resp[resp_len - 1] == 0x99) {
+            mSecureElementStatus = SecureElementStatus::NO_SUCH_ELEMENT_ERROR;
+        }
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x86) {
+            mSecureElementStatus = SecureElementStatus::UNSUPPORTED_OPERATION;
+        }
+        else if (resp[resp_len - 2] == 0x6A && resp[resp_len - 1] == 0x87) {
+            mSecureElementStatus = SecureElementStatus::UNSUPPORTED_OPERATION;
         }
     }
 
