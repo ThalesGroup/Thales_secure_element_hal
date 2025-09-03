@@ -495,12 +495,12 @@ t1_loop(struct t1_state *t1)
     int n = 0;
 
     /* Will happen on first run */
-    if (t1->need_cip) {
-        t1->state.request = 1;
-        t1->request       = T1_REQUEST_CIP;
-    } else if (t1->need_reset) {
+    if (t1->need_reset) {
         t1->state.request = 1;
         t1->request       = T1_REQUEST_SWR;
+    }else if (t1->need_cip) {
+        t1->state.request = 1;
+        t1->request       = T1_REQUEST_CIP;
     }else if (t1->need_resync) {
         t1->state.request = 1;
         t1->request       = T1_REQUEST_RESYNC;
@@ -807,7 +807,6 @@ t1_cip(struct t1_state *t1)
 {
     t1_clear_states(t1);
     t1->need_cip = 1;
-    t1->need_reset = 0;
     t1->need_resync = 0;
     return t1_loop(t1);
 }
