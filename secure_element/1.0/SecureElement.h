@@ -17,6 +17,9 @@
 #include <hidl/MQDescriptor.h>
 #include <hidl/Status.h>
 
+#define VERSION_ESE_HAL "1.0"
+#define VERSION_NAME_ESE_HAL "gto_esehal_spi"
+
 namespace android {
 namespace hardware {
 namespace secure_element {
