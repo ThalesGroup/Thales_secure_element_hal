@@ -29,6 +29,8 @@
 extern "C" {
 #endif
 
+#define VERSION_LIBSE "2.0.1"
+
 /**
  * library user context - reads the config and system
  * environment, user variables, allows custom logging.

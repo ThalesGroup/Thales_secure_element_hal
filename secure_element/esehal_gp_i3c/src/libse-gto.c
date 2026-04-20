@@ -102,6 +102,8 @@ se_gto_new(struct se_gto_ctx **c)
     const char        *env;
     struct se_gto_ctx *ctx;
 
+    dbg("libse_gto_v%s", VERSION_LIBSE);
+
     ctx = calloc(1, sizeof(struct se_gto_ctx));
     if (!ctx) {
         errno = ENOMEM;
