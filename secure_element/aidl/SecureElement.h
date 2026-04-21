@@ -20,6 +20,9 @@
 #include <android/binder_process.h>
 #include <algorithm>
 
+#define VERSION_ESE_HAL "2.0"
+#define VERSION_NAME_ESE_HAL "gto_esehal_spi-se_update_agent"
+
 using aidl::android::hardware::secure_element::BnSecureElement;
 using aidl::android::hardware::secure_element::ISecureElementCallback;
 using aidl::android::hardware::secure_element::LogicalChannelResponse;

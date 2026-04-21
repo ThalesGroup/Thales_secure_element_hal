@@ -32,7 +32,7 @@ using ndk::ScopedAStatus;
 
 int main() {
   ALOGD("android.hardware.secure_element-service.thales is starting.");
-  ALOGD("Thales Secure Element AIDL for eSE1 Service 1.6.0 is starting. libse-gto v1.13");
+  ALOGD("Thales Secure Element AIDL for eSE1 Service %s-%s is starting", VERSION_NAME_ESE_HAL, VERSION_ESE_HAL);
   // Ignore this dlopen if libstpreprocess21.so doesn't exist.
   void* stdll = dlopen("/vendor/lib64/libstpreprocess21.so", RTLD_NOW);
   if (stdll) {
