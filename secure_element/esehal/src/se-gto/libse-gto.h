@@ -30,6 +30,7 @@ extern "C" {
 #endif
 
 #define LOG_TAG "THALES_HAL"
+#define VERSION_LIBSE "1.14-legacy"
 
 /**
  * library user context - reads the config and system

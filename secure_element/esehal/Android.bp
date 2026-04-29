@@ -1,5 +1,5 @@
 cc_library_shared {
-    name: "android.hardware.secure_element.thales.libse",
+    name: "android.hardware.secure_element.thales.libse-legacy",
     vendor: true,
     srcs: [
         "src/checksum.c",

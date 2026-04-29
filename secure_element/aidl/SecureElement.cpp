@@ -22,10 +22,16 @@
 #include <limits.h>
 #include <log/log.h>
 #include <android-base/properties.h>
+#include <android/binder_ibinder.h>
+#include <android/binder_ibinder_platform.h>
+#include <private/android_filesystem_config.h>
 #include <dlfcn.h>
+#include <chrono>
 
 #include "se-gto/libse-gto.h"
 #include "SecureElement.h"
+#include <android-base/chrono_utils.h>
+using namespace std::chrono;
 
 #define VENDOR_LIB_PATH "/vendor/lib64/"
 #define VENDOR_LIB_EXT ".so"
@@ -51,6 +57,7 @@ namespace se {
 uint8_t getResponse[5] = {0x00, 0xC0, 0x00, 0x00, 0x00};
 static struct se_gto_ctx *ctx;
 bool debug_log_enabled = false;
+int64_t start_time;
 
 SecureElement::SecureElement(const char* ese_name){
     nbrOpenChannel = 0;
@@ -62,6 +69,8 @@ SecureElement::SecureElement(const char* ese_name){
     } else {
         strncpy(config_filename, "/vendor/etc/libse-gto-hal.conf", 30);
     }
+    start_time = duration_cast<seconds>(
+            android::base::boot_clock::now().time_since_epoch()).count();
 }
 
 int SecureElement::resetSE(){
@@ -71,13 +80,30 @@ int SecureElement::resetSE(){
     nbrOpenChannel = 0;
 
     ALOGD("SecureElement:%s se_gto_reset start", __func__);
-    n = se_gto_reset(ctx, atr, sizeof(atr));
+    n = se_gto_reset(ctx);
+    if (n >= 0) {
+        ALOGD("SecureElement:%s Reset Successfull\n", __func__);
+    } else {
+        ALOGE("SecureElement:%s Failed to reset\n", __func__);
+    }
+
+    return n;
+}
+
+int SecureElement::cipRequest(){
+    int n;
+
+    isBasicChannelOpen = false;
+    nbrOpenChannel = 0;
+
+    ALOGD("SecureElement:%s se_gto_cip start", __func__);
+    n = se_gto_cip(ctx, atr, sizeof(atr));
     if (n >= 0) {
         atr_size = n;
-        ALOGD("SecureElement:%s received ATR of %d bytes\n", __func__, n);
-        dump_bytes("ATR: ", ':',  atr, n, stdout);
+        ALOGD("SecureElement:%s received ATR (CIP) of %d bytes\n", __func__, n);
+        dump_bytes("ATR (CIP): ", ':',  atr, n, stdout);
     } else {
-        ALOGE("SecureElement:%s Failed to reset and get ATR: %s\n", __func__, strerror(errno));
+        ALOGE("SecureElement:%s Failed to reset and get ATR (CIP): %s\n", __func__, strerror(errno));
     }
 
     return n;
@@ -110,13 +136,9 @@ int SecureElement::initializeSE() {
         return EXIT_FAILURE;
     }
 
-    ret = resetSE();
+    ret = cipRequest();
 
-    if (ret < 0 && (strncmp(ese_flag_name, "eSE2", 4) == 0)) {
-        sleep(6);
-        ALOGE("SecureElement:%s retry resetSE", __func__);
-        ret = resetSE();
-    }
+
     if (ret < 0) {
         se_gto_close(ctx);
         ctx = NULL;
@@ -129,9 +151,49 @@ int SecureElement::initializeSE() {
     return EXIT_SUCCESS;
 }
 
-ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>& clientCallback) {
+static bool isHalBlocked(){
+    uid_t uid = AIBinder_getCallingUid();
+    ALOGD("SecureElement:%s caller UID : %d", __func__, uid);
+    const char* sid = AIBinder_getCallingSid();
+    ALOGD("SecureElement:%s caller SID : %s", __func__, sid ? sid : "(null)");
 
+    if( uid != AID_SECURE_ELEMENT && uid != AID_JC_WEAVER && uid != AID_JC_STRONGBOX ){
+        ALOGD("SecureElement:%s Calling service is Update Agent", __func__);
+        return false;
+    }
+    int v = android::base::GetIntProperty("persist.vendor.sehal.blocked", 0);
+    ALOGD("SecureElement:%s check persist.vendor.sehal.blocked == %d", __func__, v);
+    if (v == 0) {
+        return false;
+    }
+    ALOGD("SecureElement:%s SE HAL blocked by persist.vendor.sehal.blocked", __func__);
+
+    
+    //Timeout check
+    int64_t until = android::base::GetIntProperty("persist.vendor.sehal.block_until", 0);
+    ALOGD("SecureElement:%s check persist.vendor.sehal.block_until == %ld", __func__, until);
+    ALOGD("SecureElement:%s start_time == %ld", __func__, start_time);
+    ALOGD("SecureElement:%s until == %ld", __func__, until);
+    if (until > 0) {
+        int64_t now = duration_cast<seconds>(
+            android::base::boot_clock::now().time_since_epoch()).count();
+        ALOGD("SecureElement:%s now == %ld", __func__, now);
+        if (now >= start_time + until) {
+            //auto clear
+            ALOGD("SecureElement:%s SE HAL blocked timeout expired", __func__);
+            android::base::SetProperty("persist.vendor.sehal.blocked","0");
+            android::base::SetProperty("persist.vendor.sehal.block_until","0");
+            return false;
+        } else {
+            ALOGD("SecureElement:%s SE HAL blocked timeout not expired", __func__);
+        }
+    }
+    return true;
+}
+
+ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>& clientCallback) {
     ALOGD("SecureElement:%s start", __func__);
+
     if (clientCallback == nullptr) {
         ALOGE("SecureElement:%s clientCallback == nullptr", __func__);
         return ScopedAStatus::fromExceptionCode(EX_NULL_POINTER);
@@ -141,10 +203,10 @@ ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>&
 
     if (initializeSE() != EXIT_SUCCESS) {
         ALOGE("SecureElement:%s initializeSE Failed", __func__);
-        clientCallback->onStateChange(false, "SE Initialized failed");
+        notify(false, "SE Initialized failed");
     } else {
         ALOGD("SecureElement:%s initializeSE Success", __func__);
-        clientCallback->onStateChange(true, "SE Initialized");
+        notify(true, "SE Initialized");
     }
 
     ALOGD("SecureElement:%s end", __func__);
@@ -208,6 +270,11 @@ ScopedAStatus SecureElement::transmit(const std::vector<uint8_t>& data, std::vec
 
 ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid, int8_t p2, ::aidl::android::hardware::secure_element::LogicalChannelResponse* aidl_return) {
     ALOGD("SecureElement:%s start", __func__);
+    
+    if (isHalBlocked()) {
+        ALOGE("SecureElement:%s isHalBlocked == True", __func__);
+        return ScopedAStatus::fromServiceSpecificError(CHANNEL_NOT_AVAILABLE);
+    }
 
     std::vector<uint8_t> resApduBuff;
     size_t ext_channelNumber = 0xff;
@@ -221,7 +288,7 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
-            internalClientCallback->onStateChange(false, "SE Initialized failed");
+            notify(false, "SE Initialized failed");
             return ScopedAStatus::fromServiceSpecificError(IOERROR);
         }
     }
@@ -407,6 +474,13 @@ send_logical:
 }
 
 ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, int8_t p2, std::vector<uint8_t>* aidl_return) {
+    ALOGD("SecureElement:%s start", __func__);
+    
+    if (isHalBlocked()) {
+        ALOGE("SecureElement:%s isHalBlocked == True", __func__);
+        return ScopedAStatus::fromServiceSpecificError(CHANNEL_NOT_AVAILABLE);
+    }
+
     std::vector<uint8_t> result;
 
     int mSecureElementStatus = IOERROR;
@@ -429,7 +503,7 @@ ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, i
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
-            internalClientCallback->onStateChange(false, "SE Initialized failed");
+            notify(false, "SE Initialized failed");
             return ScopedAStatus::fromServiceSpecificError(IOERROR);
         }
     }
@@ -614,6 +688,15 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
 }
 
 void
+SecureElement::notify(bool state, const char *message)
+{
+    auto ret = internalClientCallback->onStateChange(state, message);
+    if (!ret.isOk()) {
+        ALOGW("failed to send onStateChange event!");
+    }
+}
+
+void
 SecureElement::dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FILE *out)
 {
     const uint8_t *s = p;
@@ -765,7 +848,7 @@ int SecureElement::deinitializeSE() {
     if(checkSeUp){
         if (se_gto_close(ctx) < 0) {
             mSecureElementStatus = FAILED;
-            internalClientCallback->onStateChange(false, "SE Initialized failed");
+            notify(false, "SE Initialized failed");
         } else {
             ctx = NULL;
             mSecureElementStatus = SUCCESS;
@@ -785,17 +868,24 @@ int SecureElement::deinitializeSE() {
 ScopedAStatus SecureElement::reset() {
 
     int status = FAILED;
+
+    int ret = 0;
+
     ALOGD("SecureElement:%s start", __func__);
 
     if (deinitializeSE() != SUCCESS) {
         ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
     }
 
-    internalClientCallback->onStateChange(false, "reset the SE");
+    if (internalClientCallback == nullptr) {
+        return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
 
-    if(initializeSE() == EXIT_SUCCESS) {
+    notify(false, "reset the SE");
+
+    if (initializeSE() == EXIT_SUCCESS) {
+        notify(true, "SE Initialized");
         status = SUCCESS;
-        internalClientCallback->onStateChange(true, "SE Initialized");
     }
 
     ALOGD("SecureElement:%s end", __func__);
