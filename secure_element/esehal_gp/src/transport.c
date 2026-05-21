@@ -101,7 +101,7 @@ crc_length(struct t1_state *t1)
 int
 block_send(struct t1_state *t1, const void *block, size_t n)
 {
-    if (n < 6)
+    if (n < 6 || t1 == NULL || block == NULL)
         return -EINVAL;
 
     return spi_write(t1->spi_fd, block, n);
@@ -118,7 +118,7 @@ block_recv(struct t1_state *t1, void *block, size_t n)
 
     struct timespec ts, ts_timeout;
 
-    if (n < 6)
+    if (n < 6 || t1 == NULL || block == NULL)
         return -EINVAL;
 
     fd = t1->spi_fd;

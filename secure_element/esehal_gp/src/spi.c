@@ -36,11 +36,12 @@
 
 #define USE_OPEN_RETRY
 #define MAX_RETRY_CNT 10
-#define SPI_FREQUENCY 5000000
 
 int
-spi_set_speed(struct se_gto_ctx *ctx, uint32_t speed)
+spi_set_speed(struct se_gto_ctx *ctx)
 {
+    uint32_t speed = ctx->spi_freq;
+
     int status = -1;
     //----- SET SPI BUS SPEED -----
     //unsigned int spi_speed;
@@ -56,7 +57,9 @@ spi_set_speed(struct se_gto_ctx *ctx, uint32_t speed)
     {
       err("Could not set SPI speed (RD)...ioctl fail");
     }
-    warn("SPI HW Set speed status = %d \n", status);
+    warn("SPI HW: Set speed status = %d \n", status);
+    if(status == 0)
+        dbg("freq=%d Hz\n", speed);
     return status;
 }
 
@@ -87,13 +90,8 @@ retry:
         return -1;
     }
 #endif
-    if(spi_set_speed(ctx, (uint32_t)SPI_FREQUENCY) < 0)
-    {
-        if (close(ctx->t1.spi_fd) < 0)
-            warn("failed to close fd to %s, %s.\n", ctx->gtodev, strerror(errno));
-        else
-            ctx->t1.spi_fd = -1;
-    }
+    if(ctx->spi_freq != (uint32_t)SPI_FREQUENCY)
+        spi_set_speed(ctx);
 
     return ctx->t1.spi_fd < 0;
 }

@@ -31,8 +31,6 @@ extern "C" {
 #define MUTEX_LOCK_TIMEOUT 5 //timeout for mutex locking
 
 #define VERSION_LIBSE_LGTO   "2.0.3"
-
-#define VERSION_LIBSE "2.0.1"
 /**
  * library user context - reads the config and system
  * environment, user variables, allows custom logging.
@@ -150,6 +148,14 @@ const char *se_gto_get_gtodev(struct se_gto_ctx *ctx);
  * @param gtodev full path to device node.
  */
 void se_gto_set_gtodev(struct se_gto_ctx *ctx, const char *gtodev);
+
+/** Set SPI frequency in Hz.
+ *
+ * @param ctx se-gto library context.
+ * @param freq frequency in Hz.
+ */
+void se_gto_set_spi_freq(struct se_gto_ctx *ctx, int spi_freq);
+
 
 /****************************** APDU protocol *******************************/
 
