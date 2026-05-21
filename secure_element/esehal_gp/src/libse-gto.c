@@ -47,6 +47,32 @@
 
 #include "compiler.h"
 
+
+#include <pthread.h>
+#include <time.h>
+static pthread_mutex_t sessionLock = PTHREAD_MUTEX_INITIALIZER;
+
+
+int _se_gto_lock_mutex(void);
+int _se_gto_unlock_mutex(void);
+
+int _se_gto_lock_mutex(void){
+    struct timespec timeout;
+
+    clock_gettime(CLOCK_REALTIME, &timeout);
+    timeout.tv_sec += MUTEX_LOCK_TIMEOUT;
+    int result = pthread_mutex_timedlock(&sessionLock, &timeout);
+
+    return result;
+}
+
+int _se_gto_unlock_mutex(void){
+    return pthread_mutex_unlock(&sessionLock);
+}
+
+
+
+
 SE_GTO_EXPORT void *
 se_gto_get_userdata(struct se_gto_ctx *ctx)
 {
@@ -96,37 +122,42 @@ log_stderr(struct se_gto_ctx *ctx, const char *s)
 SE_GTO_EXPORT int
 se_gto_new(struct se_gto_ctx **c)
 {
-    const char        *env;
-    struct se_gto_ctx *ctx;
+    if(_se_gto_lock_mutex() == 0){ //0 for success else mutex not available
+        const char        *env;
+        struct se_gto_ctx *ctx;
 
-    dbg("libse_gto_v%s", VERSION_LIBSE);
-    
-    ctx = calloc(1, sizeof(struct se_gto_ctx));
-    if (!ctx) {
-        errno = ENOMEM;
-        return -1;
+        ctx = calloc(1, sizeof(struct se_gto_ctx));
+        if (!ctx) {
+            errno = ENOMEM;
+            _se_gto_unlock_mutex();
+            return -1;
+        }
+
+        isot1_init(&ctx->t1);
+
+        ctx->log_fn = log_stderr;
+
+        ctx->gtodev = SE_GTO_GTODEV;
+    #ifdef IRQ_MODE
+        ctx->interrupt_gpio_chipset = SE_GTO_GPIO_CHIP;
+        ctx->interrupt_gpio_offset = SE_GTO_GPIO_OFFSET;
+    #endif
+
+        ctx->log_level = 2;
+        /* environment overwrites config */
+        env = getenv("SE_GTO_LOG");
+        if (env != NULL)
+            se_gto_set_log_level(ctx, log_level(env));
+
+        dbg("ctx %p created\n", ctx);
+        dbg("log_level=%d\n", ctx->log_level);
+        dbg("libse-gto-v%s\n", VERSION_LIBSE_LGTO);
+        *c = ctx;
+        _se_gto_unlock_mutex();
+        return 0;
     }
-
-    isot1_init(&ctx->t1);
-
-    ctx->log_fn = log_stderr;
-
-    ctx->gtodev = SE_GTO_GTODEV;
-#ifdef IRQ_MODE
-	ctx->interrupt_gpio_chipset = SE_GTO_GPIO_CHIP;
-    ctx->interrupt_gpio_offset = SE_GTO_GPIO_OFFSET;
-#endif
-
-    ctx->log_level = 2;
-    /* environment overwrites config */
-    env = getenv("SE_GTO_LOG");
-    if (env != NULL)
-        se_gto_set_log_level(ctx, log_level(env));
-
-    dbg("ctx %p created\n", ctx);
-    dbg("log_level=%d\n", ctx->log_level);
-    *c = ctx;
-    return 0;
+    else
+        return -1;
 }
 
 SE_GTO_EXPORT int
@@ -172,12 +203,15 @@ se_gto_set_gtodev(struct se_gto_ctx *ctx, const char *gtodev)
 SE_GTO_EXPORT int
 se_gto_reset(struct se_gto_ctx *ctx)
 {
-    int err;
+    int err = -1;
 
-    err = isot1_reset(&ctx->t1);
-    if (err < 0) {
-        errno = -err;
-        ctx->check_alive = 1;
+    if(_se_gto_lock_mutex() == 0){ //0 for success else mutex not available
+        err = isot1_reset(&ctx->t1);
+        if (err < 0) {
+            errno = -err;
+            ctx->check_alive = 1;
+        }
+        _se_gto_unlock_mutex();
     }
     return err;
 }
@@ -185,16 +219,19 @@ se_gto_reset(struct se_gto_ctx *ctx)
 SE_GTO_EXPORT int
 se_gto_cip(struct se_gto_ctx *ctx, void *atr, size_t r)
 {
-    int err;
+    int err = -1;
 
-    err = isot1_cip(&ctx->t1);
-    if (err < 0) {
-        errno = -err;
-    }
-    else {
-        err = isot1_get_atr(&ctx->t1, atr, r);
-        if (err < 0)
+    if(_se_gto_lock_mutex() == 0){ //0 for success else mutex not available
+        err = isot1_cip(&ctx->t1);
+        if (err < 0) {
             errno = -err;
+        }
+        else {
+            err = isot1_get_atr(&ctx->t1, atr, r);
+            if (err < 0)
+                errno = -err;
+        }
+        _se_gto_unlock_mutex();
     }
     return err;
 }
@@ -202,82 +239,108 @@ se_gto_cip(struct se_gto_ctx *ctx, void *atr, size_t r)
 SE_GTO_EXPORT int
 se_gto_apdu_transmit(struct se_gto_ctx *ctx, const void *apdu, int n, void *resp, int r)
 {
-    if (!apdu || (n < 4) || !resp || (r < 2)) {
-        errno = EINVAL;
-        return -1;
+    int err = -1;
+    if(_se_gto_lock_mutex() == 0){ //0 for success else mutex not available
+        if (!apdu || (n < 4) || !resp || (r < 2)) {
+            errno = EINVAL;
+            _se_gto_unlock_mutex();
+            return err;
+        }
+        r = isot1_transceive(&ctx->t1, apdu, n, resp, r);
+        if (r < 0) {
+            errno = -r;
+            err("failed to read APDU response, %s\n", strerror(-r));
+        } else if (r < 2) {
+            err("APDU response too short, only %d bytes, needs 2 at least\n", r);
+        }
+
+        _se_gto_unlock_mutex();
+
+        if (r == -0xDEAD)
+            return -0xDEAD;
+        if (r < 2){
+            ctx->check_alive = 1;
+            return err;
+        }
+        else {
+            return err;
+        }
     }
-    r = isot1_transceive(&ctx->t1, apdu, n, resp, r);
-    if (r < 0) {
-        errno = -r;
-        err("failed to read APDU response, %s\n", strerror(-r));
-    } else if (r < 2) {
-        err("APDU response too short, only %d bytes, needs 2 at least\n", r);
-    }
-	if (r == -0xDEAD)
-        return -0xDEAD;
-    if (r < 2){
-        ctx->check_alive = 1;
-        return -1;
-    } else
-        return r;
+
+    return err;
 }
 
 SE_GTO_EXPORT int
 se_gto_open(struct se_gto_ctx *ctx)
 {
-    info("eSE GTO: using %s\n", ctx->gtodev);
+    if(_se_gto_lock_mutex() == 0){ //0 for success else mutex not available
+        info("eSE GTO: using %s\n", ctx->gtodev);
 
-    if (spi_setup(ctx) < 0) {
-        err("failed to set up se-gto.\n");
-        return -1;
+        if (spi_setup(ctx) < 0) {
+            err("failed to set up se-gto.\n");
+            _se_gto_unlock_mutex();
+            return -1;
+        }
+
+    #ifdef IRQ_MODE
+        if (gpio_interrupt_setup(ctx) < 0) {
+            err("failed to set up interrupt gpio.\n");
+            return -1;
+        }
+    #endif
+
+        ctx->check_alive = 0;
+
+        isot1_bind(&ctx->t1, 0x9, 0x2);
+
+        dbg("fd: spi=%d\n", ctx->t1.spi_fd);
+        _se_gto_unlock_mutex();
+        return 0;
     }
 
-#ifdef IRQ_MODE
-    if (gpio_interrupt_setup(ctx) < 0) {
-        err("failed to set up interrupt gpio.\n");
-        return -1;
-    }
-#endif
-
-    ctx->check_alive = 0;
-
-    isot1_bind(&ctx->t1, 0x9, 0x2);
-
-    dbg("fd: spi=%d\n", ctx->t1.spi_fd);
-    return 0;
+    return -1;
 }
 
 int gtoSPI_checkAlive(struct se_gto_ctx *ctx);
 int gtoSPI_checkAlive(struct se_gto_ctx *ctx)
 {
-  int ret = 0;
-  unsigned char apdu[5]= {0x80,0xCA,0x9F,0x7F,0x2D};
-  unsigned char resp[258] = {0,};
+    int ret = 0;
+    unsigned char apdu[5]= {0x80,0xCA,0x9F,0x7F,0x2D};
+    unsigned char resp[258] = {0,};
 
-  /*Check Alive implem*/
-  ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
-  if(ret < 0){
-    return -1;
-  }
-
-  return 0;
+    if(_se_gto_lock_mutex() == 0){ //0 for success else mutex not available
+        /*Check Alive implem*/
+        ret = se_gto_apdu_transmit(ctx, apdu, 5, resp, sizeof(resp));
+        _se_gto_unlock_mutex();
+        if(ret < 0){
+            return -1;
+        }
+    }
+    return 0;
 }
 
 SE_GTO_EXPORT int
 se_gto_close(struct se_gto_ctx *ctx)
 {
-    int status = 0;
+    if(_se_gto_lock_mutex() == 0){ //0 for success else mutex not available
+        int status = 0;
 
-    dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
-    if (ctx->check_alive == 1)
-        if (gtoSPI_checkAlive(ctx) != 0) status = 0xDEAD;
+        dbg("se_gto_close check_alive = %d\n", ctx->check_alive);
+        if (ctx->check_alive == 1)
+            if (gtoSPI_checkAlive(ctx) != 0) status = 0xDEAD;
 
-    (void)isot1_release(&ctx->t1);
-    (void)spi_teardown(ctx);
-#ifdef IRQ_MODE
-	(void)gpio_interrupt_teardown(ctx);
-#endif
-    log_teardown(ctx);
-    free(ctx);
-    return status;
+        (void)isot1_release(&ctx->t1);
+        (void)spi_teardown(ctx);
+    #ifdef IRQ_MODE
+        (void)gpio_interrupt_teardown(ctx);
+    #endif
+    #ifdef ENABLE_LOGGING
+        // log_teardown(ctx);
+    #endif /* ifdef ENABLE_LOGGING */
+        free(ctx);
+        _se_gto_unlock_mutex();
+        return status;
+    }
+    else
+        return -1;
 }

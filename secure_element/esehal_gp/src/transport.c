@@ -115,7 +115,6 @@ block_recv(struct t1_state *t1, void *block, size_t n)
     uint8_t *s, i;
     int      len, max;
     long     bwt;
-    int ret = 0;
 
     struct timespec ts, ts_timeout;
 
@@ -151,6 +150,7 @@ block_recv(struct t1_state *t1, void *block, size_t n)
     } while (c != ESE_NAD);
 
 #else
+    int ret = 0;
     ret = gpio_poll(t1, bwt);
 
     if(ret == -1){

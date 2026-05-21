@@ -166,7 +166,7 @@ write_iblock(struct t1_state *t1, uint8_t *buf)
 
     buf[0] = t1->nad;
     buf[1] = pcb;
-    buf[2] = (uint8_t)n >> 8;
+    buf[2] = (uint8_t)(n >> 8);
     buf[3] = (uint8_t)n;
     memcpy(buf + 4, t1->send.start, (size_t)n);
     return do_chk(t1, buf);
@@ -198,7 +198,7 @@ write_request(struct t1_state *t1, int request, uint8_t *buf)
         buf[3] = 1;//todo : DONE
         if (buf[1] & 0x20) {
             tmp[1] = (uint8_t) t1->ifsc;
-            tmp[0] = (uint8_t) t1->ifsc >> 8;
+            tmp[0] = (uint8_t) (t1->ifsc >> 8);
             if (tmp[0] == 0x00)
                 buf[4] = t1->ifsc;
             else {
@@ -209,7 +209,7 @@ write_request(struct t1_state *t1, int request, uint8_t *buf)
         }
         else {
             tmp[1] = (uint8_t) t1->ifsd;
-            tmp[0] = (uint8_t) t1->ifsd >> 8;
+            tmp[0] = (uint8_t) (t1->ifsd >> 8);
             if (tmp[0] == 0x00)
                 buf[4] = t1->ifsd;
             else {
@@ -381,7 +381,6 @@ static void
 parse_atr(struct t1_state *t1)
 {
     const uint8_t *atr = t1->atr;
-    size_t         n = t1->atr_length;
     int            plp_length = 0, iin_length = 0, ifsc_index = 0, bwt_index = 0;
 
     /*Fast way to get ifsc*/

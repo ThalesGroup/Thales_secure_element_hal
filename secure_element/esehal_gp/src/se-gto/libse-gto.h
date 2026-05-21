@@ -28,6 +28,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define MUTEX_LOCK_TIMEOUT 5 //timeout for mutex locking
+
+#define VERSION_LIBSE_LGTO   "2.0.3"
 
 #define VERSION_LIBSE "2.0.1"
 /**
