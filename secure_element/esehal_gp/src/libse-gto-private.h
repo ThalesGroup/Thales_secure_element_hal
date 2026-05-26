@@ -28,7 +28,7 @@
 #include "iso7816_t1.h"
 
 #define SE_GTO_EXPORT __attribute__((visibility("default")))
-#define SPI_FREQUENCY 0
+#define FREQUENCY 0
 
 /**
  * SECTION:libspiplus
@@ -50,7 +50,7 @@ struct se_gto_ctx {
     void *spi_buffer;
     int   spi_nbuffer;
 
-    uint32_t spi_freq;
+    uint32_t frequency;
 
     struct t1_state t1;
 

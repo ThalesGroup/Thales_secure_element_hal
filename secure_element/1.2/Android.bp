@@ -1,7 +1,7 @@
 cc_binary {
-    name: "android.hardware.secure_element@1.2-service-gto",
+    name: "android.hardware.secure_element@1.2-service-thales",
     relative_install_path: "hw",
-    init_rc: ["android.hardware.secure_element@1.2-service-gto.rc"],
+    init_rc: ["android.hardware.secure_element@1.2-service-thales.rc"],
     vendor: true,
     defaults: ["hidl_defaults"],
     srcs: [

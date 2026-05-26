@@ -40,7 +40,7 @@
 int
 spi_set_speed(struct se_gto_ctx *ctx)
 {
-    uint32_t speed = ctx->spi_freq;
+    uint32_t speed = ctx->frequency;
 
     int status = -1;
     //----- SET SPI BUS SPEED -----
@@ -90,7 +90,7 @@ retry:
         return -1;
     }
 #endif
-    if(ctx->spi_freq != (uint32_t)SPI_FREQUENCY)
+    if(ctx->frequency != (uint32_t)FREQUENCY)
         spi_set_speed(ctx);
 
     return ctx->t1.spi_fd < 0;

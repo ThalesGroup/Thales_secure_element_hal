@@ -58,9 +58,9 @@ SecureElement::SecureElement(const char* ese_name){
 
     strncpy(ese_flag_name, ese_name, 4);
     if (strncmp(ese_flag_name, "eSE2", 4) == 0) {
-        strncpy(config_filename, "/vendor/etc/libse-gto-hal2.conf", 31);
+        strncpy(config_filename, "/vendor/etc/libse-thales-hal2.conf", 31);
     } else {
-        strncpy(config_filename, "/vendor/etc/libse-gto-hal.conf", 30);
+        strncpy(config_filename, "/vendor/etc/libse-thales-hal.conf", 30);
     }
 }
 

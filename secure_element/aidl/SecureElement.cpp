@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <vector>
 #include <ctype.h>
 #include <inttypes.h>
 #include <errno.h>
@@ -49,19 +50,14 @@ namespace se {
 #endif
 
 uint8_t getResponse[5] = {0x00, 0xC0, 0x00, 0x00, 0x00};
-static struct se_gto_ctx *ctx;
+uint8_t openChannel[5] = {0x00, 0x70, 0x00, 0x00, 0x01};
 bool debug_log_enabled = false;
 
 SecureElement::SecureElement(const char* ese_name){
     nbrOpenChannel = 0;
     ctx = NULL;
 
-    strncpy(ese_flag_name, ese_name, 4);
-    if (strncmp(ese_flag_name, "eSE2", 4) == 0) {
-        strncpy(config_filename, "/vendor/etc/libse-gto-hal2.conf", 31);
-    } else {
-        strncpy(config_filename, "/vendor/etc/libse-gto-hal.conf", 30);
-    }
+    config_filename = CONFIG_FILE;
 }
 
 int SecureElement::resetSE(){
@@ -225,7 +221,6 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
     std::vector<uint8_t> resApduBuff;
     size_t ext_channelNumber = 0xff;
     size_t channelNumber = 0xff;
-    memset(&resApduBuff, 0x00, sizeof(resApduBuff));
 
     if (internalClientCallback == nullptr) {
         return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
@@ -246,34 +241,21 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
 
     int mSecureElementStatus = IOERROR;
 
-    uint8_t *apdu; //65536
-    int apdu_len = 0;
     uint8_t *resp;
     int resp_len = 0;
-    uint8_t index = 0;
     int getResponseOffset = 0;
 
-    apdu_len = 5;
-    apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
 
-    if (apdu != NULL && resp!=NULL) {
-        index = 0;
-        apdu[index++] = 0x00;
-        apdu[index++] = 0x70;
-        apdu[index++] = 0x00;
-        apdu[index++] = 0x00;
-        apdu[index++] = 0x01;
+    if (resp!=NULL) {
+        dump_bytes("CMD: ", ':', openChannel, sizeof(openChannel), stdout);
 
-        dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
-
-        resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
+        resp_len = se_gto_apdu_transmit(ctx, openChannel, sizeof(openChannel), resp, 65536);
         ALOGD("SecureElement:%s Manage channel resp_len = %d", __func__,resp_len);
     }
 
     if (resp_len >= 0)
         dump_bytes("RESP: ", ':', resp, resp_len, stdout);
-
 
     if (resp_len < 0) {
         if (deinitializeSE() != SUCCESS) {
@@ -281,7 +263,6 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
         }
         mSecureElementStatus = IOERROR;
         ALOGD("SecureElement:%s Free memory after manage channel after ERROR", __func__);
-        if(apdu) free(apdu);
         if(resp) free(resp);
         return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     } else if (resp[resp_len - 2] == 0x90 && resp[resp_len - 1] == 0x00) {
@@ -302,12 +283,10 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
             mSecureElementStatus = IOERROR;
         }
         ALOGD("SecureElement:%s Free memory after manage channel after ERROR", __func__);
-        if(apdu) free(apdu);
         if(resp) free(resp);
         return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     }
 
-    if(apdu) free(apdu);
     if(resp) free(resp);
     ALOGD("SecureElement:%s Free memory after manage channel", __func__);
     ALOGD("SecureElement:%s mSecureElementStatus = %d", __func__, (int)mSecureElementStatus);
@@ -317,25 +296,23 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
 
     mSecureElementStatus = IOERROR;
 
-    apdu_len = (int32_t)(6 + aid.size());
+    std::vector<uint8_t> cmdApdu;
+
     resp_len = 0;
-    apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
 
-    if (apdu != NULL && resp!=NULL) {
-        index = 0;
-        apdu[index++] = ext_channelNumber;
-        apdu[index++] = 0xA4;
-        apdu[index++] = 0x04;
-        apdu[index++] = p2;
-        apdu[index++] = aid.size();
-        memcpy(&apdu[index], aid.data(), aid.size());
-        index += aid.size();
-        apdu[index] = 0x00;
+    if (resp!=NULL) {
+        cmdApdu.push_back(ext_channelNumber);
+        cmdApdu.push_back(0xA4);
+        cmdApdu.push_back(0x04);
+        cmdApdu.push_back(p2);
+        cmdApdu.push_back(aid.size());
+        cmdApdu.insert(cmdApdu.end(), aid.begin(), aid.end());
+        cmdApdu.push_back(0x00);
 
 send_logical:
-        dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
-        resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
+        dump_bytes("CMD: ", ':', cmdApdu.data(), cmdApdu.size(), stdout);
+        resp_len = se_gto_apdu_transmit(ctx, cmdApdu.data(), cmdApdu.size(), resp, 65536);
         ALOGD("SecureElement:%s selectApdu resp_len = %d", __func__,resp_len);
     }
 
@@ -345,6 +322,8 @@ send_logical:
              ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
         }
         mSecureElementStatus = IOERROR;
+        if(resp) free(resp);
+        return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     } else {
         dump_bytes("RESP: ", ':', resp, resp_len, stdout);
 
@@ -358,22 +337,32 @@ send_logical:
             memcpy(&resApduBuff[getResponseOffset], resp, resp_len - 2);
             getResponseOffset += (resp_len - 2);
             getResponse[4] = resp[resp_len - 1];
-            getResponse[0] = apdu[0];
+            getResponse[0] = cmdApdu[0];
             dump_bytes("getResponse CMD: ", ':', getResponse, 5, stdout);
-            free(apdu);
-            apdu_len = 5;
-            apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
             memset(resp, 0, resp_len);
-            memcpy(apdu, getResponse, apdu_len);
-            apdu[0] = ext_channelNumber;
+            cmdApdu.clear();
+            for (size_t i = 0; i < sizeof(getResponse); i++) {
+                cmdApdu.push_back(getResponse[i]);
+            }
+            cmdApdu.at(0) = ext_channelNumber;
+            dump_bytes("getResponse CMD: ", ':', cmdApdu.data(), cmdApdu.size(), stdout);
+
             goto send_logical;
         }
         else if (resp[resp_len - 2] == 0x6C) {
             resApduBuff.resize(getResponseOffset + resp_len - 2);
             memcpy(&resApduBuff[getResponseOffset], resp, resp_len - 2);
             getResponseOffset += (resp_len - 2);
-            apdu[4] = resp[resp_len - 1];
-            dump_bytes("case2 getResponse CMD: ", ':', apdu, 5, stdout);
+
+
+            cmdApdu.clear();
+            for (size_t i = 0; i < sizeof(getResponse); i++) {
+                cmdApdu.push_back(getResponse[i]);
+            }
+            cmdApdu.at(0) = ext_channelNumber;
+            cmdApdu.at(4) = resp[resp_len - 1];
+
+            dump_bytes("case2 getResponse CMD: ", ':', cmdApdu.data(), cmdApdu.size(), stdout);
             memset(resp, 0, resp_len);
             goto send_logical;
         }
@@ -412,7 +401,6 @@ send_logical:
     };
 
     ALOGD("SecureElement:%s Free memory after selectApdu", __func__);
-    if(apdu) free(apdu);
     if(resp) free(resp);
 
     if(mSecureElementStatus != SUCCESS) return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
@@ -709,48 +697,112 @@ SecureElement::run_apdu(struct se_gto_ctx *ctx, const uint8_t *apdu, uint8_t *re
     return 0;
 }
 
+// Helper function: trim whitespace from both ends
+static std::string trim(const std::string& str) {
+    auto start = std::find_if_not(str.begin(), str.end(),
+                                   [](unsigned char c) { return std::isspace(c); });
+    auto end = std::find_if_not(str.rbegin(), str.rend(),
+                                 [](unsigned char c) { return std::isspace(c); }).base();
+    return (start < end) ? std::string(start, end) : std::string();
+}
+
+// Helper function: split key=value, handling multiple separators
+static bool splitKeyValue(const std::string& line, std::string& key, std::string& value) {
+    // Find first separator (space, =, or ;)
+    auto sep_pos = line.find_first_of(" =;");
+    if (sep_pos == std::string::npos) {
+        return false;
+    }
+
+    key = trim(line.substr(0, sep_pos));
+
+    // Find start of value (skip all separators)
+    auto value_start = line.find_first_not_of(" =;", sep_pos);
+    if (value_start == std::string::npos) {
+        return false;
+    }
+
+    // Find end of value (before trailing separators)
+    auto value_end = line.find_last_not_of(" =;\r\n");
+    value = line.substr(value_start, value_end - value_start + 1);
+
+    return !key.empty() && !value.empty();
+}
+
 int
 SecureElement::parseConfigFile(FILE *f, int verbose)
 {
-    static char    buf[65536 * 2 + 2];
+    char buffer[1024];
+    int line_num = 0;
 
-    int line;
-    char * pch;
+    while (fgets(buffer, sizeof(buffer), f) != NULL) {
+        line_num++;
 
-    line = 0;
-    while (feof(f) == 0) {
-        char *s;
+        std::string line(buffer);
+        line = trim(line);
 
-        s = fgets(buf, sizeof buf, f);
-        if (s == NULL)
-            break;
-        if (s[0] == '#') {
+        // Skip empty lines and comments
+        if (line.empty() || line[0] == '#') {
             continue;
         }
 
-        pch = strtok(s," =;");
-        if (strcmp("GTO_DEV", pch) == 0) {
-            pch = strtok (NULL, " =;");
-            ALOGD("SecureElement:%s Defined node : %s", __func__, pch);
-            if (strlen(pch) > 0 && strcmp("\n", pch) != 0 && strcmp("\0", pch) != 0 ) {
-                se_gto_set_gtodev(ctx, pch);
+        std::string key, value;
+        if (!splitKeyValue(line, key, value)) {
+            ALOGW("SecureElement:%s Line %d: Invalid format", __func__, line_num);
+            continue;
+        }
+
+        // Process configuration keys
+        if (key == CONFIG_KEY_GTO_DEVICE) {
+            ALOGD("SecureElement:%s Defined node: %s", __func__, value.c_str());
+
+            if (value.length() > 0 && value.length() < 256) {
+                se_gto_set_gtodev(ctx, value.c_str());
+            } else {
+                ALOGE("SecureElement:%s Line %d: Invalid GTO_DEV value length: %zu",
+                      __func__, line_num, value.length());
             }
-        } else if (strcmp("GTO_DEBUG", pch) == 0) {
-            pch = strtok(NULL, " =;");
-            ALOGD("SecureElement:%s Log state : %s", __func__, pch);
-            if (strlen(pch) > 0 && strcmp("\n", pch) != 0 && strcmp("\0", pch) != 0 ) {
-                if (strcmp(pch, "enable") == 0) {
-                    debug_log_enabled = true;
-                    se_gto_set_log_level(ctx, 4);
-                } else {
-                    debug_log_enabled = false;
-                    se_gto_set_log_level(ctx, 3);
-                }
+
+        } else if (key == CONFIG_KEY_GTO_DEBUG) {
+            ALOGD("SecureElement:%s Log state: %s", __func__, value.c_str());
+
+            if (value == "enable") {
+                debug_log_enabled = true;
+                se_gto_set_log_level(ctx, 4);
+            } else if (value == "disable") {
+                debug_log_enabled = false;
+                se_gto_set_log_level(ctx, 3);
+            } else {
+                ALOGW("SecureElement:%s Line %d: Unknown GTO_DEBUG value '%s'",
+                      __func__, line_num, value.c_str());
             }
+
+        } else if (key == CONFIG_KEY_FREQUENCY) {
+            size_t pos = 0;
+            int result = std::stoi(value, &pos);
+
+            if (pos == value.length()) {
+                ALOGD("SecureElement:%s Frequency: %s", __func__, value.c_str());
+                se_gto_set_frequency(ctx, result);
+            } else {
+                ALOGW("SecureElement:%s Line %d: Unknown FREQUENCY value '%s'",
+                      __func__, line_num, value.c_str());
+            }
+
+        } else {
+            ALOGW("SecureElement:%s Line %d: Unknown key '%s'",
+                  __func__, line_num, key.c_str());
         }
     }
+
+    if (ferror(f)) {
+        ALOGE("SecureElement:%s Error reading config file", __func__);
+        return -1;
+    }
+
     return 0;
 }
+
 
 int
 SecureElement::openConfigFile(int verbose)
@@ -760,21 +812,21 @@ SecureElement::openConfigFile(int verbose)
 
 
     /* filename is not NULL */
-    ALOGD("SecureElement:%s Open Config file : %s", __func__, config_filename);
-    f = fopen(config_filename, "r");
+    ALOGD("SecureElement:%s Open Config file : %s", __func__, config_filename.c_str());
+    f = fopen(config_filename.c_str(), "r");
     if (f) {
         r = parseConfigFile(f, verbose);
         if (r == -1) {
-            perror(config_filename);
-            ALOGE("SecureElement:%s Error parse %s Failed", __func__, config_filename);
+            perror(config_filename.c_str());
+            ALOGE("SecureElement:%s Error parse %s Failed", __func__, config_filename.c_str());
         }
         if (fclose(f) != 0) {
             r = -1;
-            ALOGE("SecureElement:%s Error close %s Failed", __func__, config_filename);
+            ALOGE("SecureElement:%s Error close %s Failed", __func__, config_filename.c_str());
         }
     } else {
         r = -1;
-        ALOGE("SecureElement:%s Error open %s Failed", __func__, config_filename);
+        ALOGE("SecureElement:%s Error open %s Failed", __func__, config_filename.c_str());
     }
     return r;
 }

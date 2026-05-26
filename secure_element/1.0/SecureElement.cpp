@@ -52,9 +52,9 @@ SecureElement::SecureElement(const char* ese_name){
     ctx = NULL;
 
     if (strcmp(ese_name, "eSE2") == 0) {
-        strcpy( config_filename, "/vendor/etc/libse-gto-hal2.conf");
+        strcpy( config_filename, "/vendor/etc/libse-thales-hal2.conf");
     } else {
-        strcpy( config_filename, "/vendor/etc/libse-gto-hal.conf");
+        strcpy( config_filename, "/vendor/etc/libse-thales-hal.conf");
     }
 }
 
@@ -244,7 +244,7 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
     apdu_len = 5;
     apdu = (uint8_t*)malloc(apdu_len * sizeof(uint8_t));
     resp = (uint8_t*)malloc(65536 * sizeof(uint8_t));
-  
+
     if (apdu != NULL && resp!=NULL) {
         index = 0;
         apdu[index++] = 0x00;

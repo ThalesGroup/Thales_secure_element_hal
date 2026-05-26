@@ -10,8 +10,8 @@
  * See the License for the specific language governing permissions and limitations under the License.
 
  ****************************************************************************/
-#ifndef ANDROID_HARDWARE_SECURE_ELEMENT_V1_0_AIDL_SECUREELEMENT_H
-#define ANDROID_HARDWARE_SECURE_ELEMENT_V1_0_AIDL_SECUREELEMENT_H
+#ifndef ANDROID_HARDWARE_SECURE_ELEMENT_V2_1_AIDL_SECUREELEMENT_H
+#define ANDROID_HARDWARE_SECURE_ELEMENT_V2_1_AIDL_SECUREELEMENT_H
 
 #include <aidl/android/hardware/secure_element/BnSecureElement.h>
 #include <android-base/hex.h>
@@ -19,9 +19,16 @@
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 #include <algorithm>
+#include <string>
 
-#define VERSION_ESE_HAL "2.0"
+#define VERSION_ESE_HAL "2.1"
 #define VERSION_NAME_ESE_HAL "gto_esehal_spi"
+
+#define CONFIG_FILE "/vendor/etc/libse-thales-hal.conf"
+
+#define CONFIG_KEY_GTO_DEVICE "GTO_DEV"
+#define CONFIG_KEY_GTO_DEBUG "GTO_DEBUG"
+#define CONFIG_KEY_FREQUENCY "FREQUENCY"
 
 using aidl::android::hardware::secure_element::BnSecureElement;
 using aidl::android::hardware::secure_element::ISecureElementCallback;
@@ -43,13 +50,15 @@ struct SecureElement : public BnSecureElement {
 
 
     private:
+
+    struct se_gto_ctx *ctx;
+
     uint8_t nbrOpenChannel = 0;
     bool isBasicChannelOpen = false;
     bool checkSeUp = false;
     uint8_t atr[64];
     uint8_t atr_size;
-    char config_filename[100];
-    char ese_flag_name[5];
+    std::string config_filename;
     std::shared_ptr<ISecureElementCallback> internalClientCallback;
     int initializeSE();
     int deinitializeSE();
@@ -64,4 +73,4 @@ struct SecureElement : public BnSecureElement {
 };
 
 } //se
-#endif  // ANDROID_HARDWARE_SECURE_ELEMENT_V1_0_AIDL_SECUREELEMENT_H
+#endif  // ANDROID_HARDWARE_SECURE_ELEMENT_V2_1_AIDL_SECUREELEMENT_H
