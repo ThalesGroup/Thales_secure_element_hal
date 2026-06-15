@@ -100,8 +100,6 @@ se_gto_new(struct se_gto_ctx **c)
         return -1;
     }
 
-    dbg("libse_gto_v%s", VERSION_LIBSE);
-
     isot1_init(&ctx->t1);
 
     ctx->log_fn = log_stderr;
@@ -116,6 +114,7 @@ se_gto_new(struct se_gto_ctx **c)
 
     dbg("ctx %p created\n", ctx);
     dbg("log_level=%d\n", ctx->log_level);
+    dbg("libse_gto_v%s", VERSION_LIBSE);
     *c = ctx;
     return 0;
 }

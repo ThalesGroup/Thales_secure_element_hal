@@ -42,7 +42,7 @@ vsay(struct se_gto_ctx *ctx, const char *fmt, va_list args)
     static int k = 0;
     char      *buf;
 
-    if (!ctx->log_fn)
+    if (!ctx || !ctx->log_fn)
         return;
 
     if (!ctx->log_buf) {
