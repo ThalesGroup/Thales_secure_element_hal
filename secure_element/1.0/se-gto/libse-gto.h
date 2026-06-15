@@ -30,7 +30,10 @@ extern "C" {
 #endif
 #define MUTEX_LOCK_TIMEOUT 5 //timeout for mutex locking
 
-#define VERSION_LIBSE_LGTO   "2.0.3"
+#undef LOG_TAG
+#define LOG_TAG "THALES_GP_HAL"
+
+#define VERSION_LIBSE_LGTO   "2.0.4"
 /**
  * library user context - reads the config and system
  * environment, user variables, allows custom logging.
