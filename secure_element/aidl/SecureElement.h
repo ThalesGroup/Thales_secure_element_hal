@@ -20,7 +20,7 @@
 #include <android/binder_process.h>
 #include <algorithm>
 
-#define VERSION_ESE_HAL "3.3.1"
+#define VERSION_ESE_HAL "3.3.2"
 #define VERSION_NAME_ESE_HAL "gto_esehal_i3c"
 
 using aidl::android::hardware::secure_element::BnSecureElement;
