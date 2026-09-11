@@ -1,0 +1,202 @@
+/*****************************************************************************
+ * Copyright ©2017-2026 Thales. All rights Reserved.
+ *
+ * This copy is licensed under the Apache License, Version 2.0 (the "License");
+ * You may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *     http://www.apache.org/licenses/LICENSE-2.0 or https://www.apache.org/licenses/LICENSE-2.0.html
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and limitations under the License.
+
+ ****************************************************************************/
+
+/**
+ * @file
+ * $Author$
+ * $Revision$
+ * $Date$
+ *
+ * eSE Gemalto kernel driver transport.
+ *
+ */
+#ifndef I3C
+
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <time.h>
+
+#include "iso7816_t1.h"
+#include "transport.h"
+#include "spi.h"
+
+#ifdef IRQ_MODE
+#include "gpio_core.h"
+#endif
+
+#define NSEC_PER_SEC  1000000000L
+#define NSEC_PER_MSEC 1000000L
+#define POLLING_MS 1
+
+
+#define ESE_NAD 0x92
+#define MIN_LEN_CRC 4
+
+int transport_setup(struct thalesEse_ctx *ctx)
+{
+    return spi_setup(ctx);
+}
+
+int transport_teardown(struct thalesEse_ctx *ctx)
+{
+    return spi_teardown(ctx);
+}
+
+static int
+ts_compare(const struct timespec *t1, const struct timespec *t2)
+{
+    if (t1->tv_sec < t2->tv_sec)
+        return -1;
+    else if (t1->tv_sec > t2->tv_sec)
+        return 1;
+    else
+        return t1->tv_nsec - t2->tv_nsec;
+}
+
+static uint32_t
+div_uint64_rem(uint64_t dividend, uint32_t divisor, uint64_t *remainder)
+{
+    uint32_t r    = 0;
+
+    /* Compiler will optimize to modulo on capable platform */
+    while (dividend >= divisor)
+        dividend -= divisor, r++;
+
+    *remainder = dividend;
+    return r;
+}
+
+static struct timespec
+ts_add_ns(const struct timespec ta, uint64_t ns)
+{
+    time_t sec = ta.tv_sec +
+                 div_uint64_rem(ta.tv_nsec + ns, NSEC_PER_SEC, &ns);
+    struct timespec ts = { sec, ns };
+
+    return ts;
+}
+
+static int
+crc_length(struct t1_state *t1)
+{
+    int n = 0;
+
+    switch (t1->chk_algo) {
+        case CHECKSUM_LRC:
+            n = 1;
+            break;
+
+        case CHECKSUM_CRC:
+            n = 2;
+            break;
+    }
+    return n;
+}
+
+int
+block_send(struct t1_state *t1, const void *block, size_t n)
+{
+    if (n < 6 || t1 == NULL || block == NULL)
+        return -EINVAL;
+
+    return spi_write(t1->file_descriptor, block, n);
+}
+
+int
+block_recv(struct t1_state *t1, void *block, size_t n)
+{
+    uint8_t  c;
+    int      fd;
+    uint8_t *s, i;
+    int      len, max;
+    long     bwt;
+
+    struct timespec ts, ts_timeout;
+
+    if (n < 6 || t1 == NULL || block == NULL)
+        return -EINVAL;
+
+    fd = t1->file_descriptor;
+    s  = block;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    bwt     = t1->bwt * (t1->wtx ? t1->wtx : 1);
+    t1->wtx = 1;
+    i = 0;
+#ifndef IRQ_MODE
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    ts_timeout = ts_add_ns(ts, bwt * NSEC_PER_MSEC);
+
+    /* Pull every POLLING_MS */
+    do {
+        // Wait for POLLING_MS
+        ts = ts_add_ns(ts, POLLING_MS * NSEC_PER_MSEC);
+        while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL))
+            if  (errno != EINTR)
+                break;
+
+
+        len = spi_read(fd, &c, 1);
+        if (len < 0)
+            return len;
+
+        if (ts_compare(&ts, &ts_timeout) >= 0)
+            return -ETIMEDOUT;
+    } while (c != ESE_NAD);
+
+#else
+    int ret = 0;
+    ret = gpio_poll(t1, bwt);
+
+    if(ret == -1){
+        return -EFAULT;
+    } else if (ret == -2){
+        return -ETIMEDOUT;
+    }
+
+    len = spi_read(fd, &c, 1);
+    if (len < 0)
+        return len;
+    if (c != ESE_NAD)
+        return -EFAULT;
+#endif
+
+    s[i++] = c;
+
+    /* Minimal length is MIN_LEN_CRC + sizeof(checksum) */
+    max = (MIN_LEN_CRC-1) + crc_length(t1);
+    len = spi_read(fd, s + 1, max);
+    if (len < 0)
+        return len;
+
+    i += len;
+
+    /* verify that buffer is large enough. */
+    max += (s[3] | s[2] << 8);
+    if ((size_t)max > n)
+        return -ENOMEM;
+
+    /* get block remaining if present */
+    if ((s[3] | s[2] << 8)) {
+        len = spi_read(fd, s + 6, (s[3] | s[2] << 8));
+        if (len < 0)
+            return len;
+    }
+    return max + 1;
+}
+#endif //not I3C

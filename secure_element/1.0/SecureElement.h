@@ -59,7 +59,7 @@ struct SecureElement : public ISecureElement , public hidl_death_recipient {
     int initializeSE();
     Return<::android::hardware::secure_element::V1_0::SecureElementStatus> deinitializeSE();
     void serviceDied(uint64_t, const wp<IBase>&) override;
-    static int run_apdu(struct se_gto_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose);
+    static int run_apdu(struct thalesEse_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose);
     static int toint(char c);
     static void dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FILE *out);
     int resetSE();

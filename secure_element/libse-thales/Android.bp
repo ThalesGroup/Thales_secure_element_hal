@@ -1,0 +1,82 @@
+cc_library_shared {
+    name: "android.hardware.secure_element.thales.libse-thales",
+    vendor: true,
+    srcs: [
+        "gp/src/api/libse-thales.c",
+        "gp/src/core/checksum.c",
+        "gp/src/core/gpio_core.c",
+        "gp/src/core/iso7816_t1.c",
+        "gp/src/core/log.c",
+        "gp/src/driver/spi/spi.c",
+        "gp/src/driver/spi/transport.c",
+    ],
+ 
+    local_include_dirs: [
+        "gp/se-thales",
+        "gp/include/core",
+        "gp/include/linux",
+        "gp/include/driver",
+        "gp/include/driver/spi",
+    ],
+ 
+    cflags: [
+        "-DANDROID",
+        "-DENABLE_LOGGING=1",
+        "-DENABLE_DEBUG=1",
+        "-DMULTI_THREADING=0",
+        "-Wno-unused-parameter",
+        "-Wno-unused-private-field",
+        "-Wno-error",
+        "-Wreturn-type",
+        "-DIRQ_GPIO_OFFSET=5",
+        "-DGPIO_CHIP_NAME=\"gpiochip2\"",
+    ],
+ 
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libhardware",
+        "liblog",
+        "libutils",
+    ], 
+}
+
+cc_library_shared {
+    name: "android.hardware.secure_element.thales.libse-thales-legacy",
+    vendor: true,
+    srcs: [
+        "legacy/src/api/libse-thales.c",
+        "legacy/src/core/checksum.c",
+        "legacy/src/core/iso7816_t1.c",
+        "legacy/src/core/log.c",
+        "legacy/src/driver/spi/spi.c",
+        "legacy/src/driver/spi/transport.c",
+    ],
+ 
+    local_include_dirs: [
+        "legacy/se-thales",
+        "legacy/include/core",
+        "legacy/include/linux",
+        "legacy/include/driver",
+        "legacy/include/driver/spi",
+    ],
+ 
+    cflags: [
+        "-DANDROID",
+        "-DENABLE_LOGGING=1",
+        "-DENABLE_DEBUG=1",
+        "-DMULTI_THREADING=0",
+        "-Wno-unused-parameter",
+        "-Wno-unused-private-field",
+        "-Wno-error",
+        "-Wreturn-type",
+    ],
+ 
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libhardware",
+        "liblog",
+        "libutils",
+    ],
+}

@@ -9,11 +9,15 @@ cc_binary {
         "GtoService.cpp",
     ],
 
+    local_include_dirs: [
+        "se-thales",
+    ],
+
     shared_libs: [
         "android.hardware.secure_element@1.0",
         "android.hardware.secure_element@1.1",
         "android.hardware.secure_element@1.2",
-        "android.hardware.secure_element.thales.libse-gp",
+        "android.hardware.secure_element.thales.libse-thales",
         "libbase",
         "libcutils",
         "libhardware",

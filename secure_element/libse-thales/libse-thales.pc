@@ -1,0 +1,10 @@
+prefix=
+exec_prefix=
+libdir=
+includedir=
+
+Name: libse-thales
+Description: Thales Secure Element Library
+Version: 
+Libs: -L -lse-thales
+Cflags: -I

@@ -26,8 +26,8 @@
 
 #define CONFIG_FILE "/vendor/etc/libse-thales-hal.conf"
 
-#define CONFIG_KEY_GTO_DEVICE "GTO_DEV"
-#define CONFIG_KEY_GTO_DEBUG "GTO_DEBUG"
+#define CONFIG_KEY_DEVICE_NODE "DEV_NODE"
+#define CONFIG_KEY_DEBUG "DEBUG_MODE"
 #define CONFIG_KEY_FREQUENCY "FREQUENCY"
 
 using aidl::android::hardware::secure_element::BnSecureElement;
@@ -51,7 +51,7 @@ struct SecureElement : public BnSecureElement {
 
     private:
 
-    struct se_gto_ctx *ctx;
+    struct thalesEse_ctx *ctx;
 
     uint8_t nbrOpenChannel = 0;
     bool isBasicChannelOpen = false;
@@ -62,14 +62,15 @@ struct SecureElement : public BnSecureElement {
     std::shared_ptr<ISecureElementCallback> internalClientCallback;
     int initializeSE();
     int deinitializeSE();
-    static int run_apdu(struct se_gto_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose);
+    static int run_apdu(struct thalesEse_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose);
     static int toint(char c);
-    static void dump_bytes(const char *pf, char sep, const uint8_t *p, int n, FILE *out);
+    static void dump_bytes(const char* message, const uint8_t *bytes, int size);
     int resetSE();
     int cipRequest();
     int openConfigFile(int verbose);
     int parseConfigFile(FILE *f, int verbose);
     void notify(bool state, const char *message);
+    ScopedAStatus _selectAID(const std::vector<uint8_t>& aid, uint8_t p2, size_t channelNumber, std::variant<::aidl::android::hardware::secure_element::LogicalChannelResponse*, std::vector<uint8_t>*> aidl_return);
 };
 
 } //se

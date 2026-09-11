@@ -6,13 +6,18 @@ cc_binary {
     vendor: true,
     srcs: [
         "SecureElement.cpp",
-        "GtoService.cpp",
+        "ThalesService.cpp",
+    ],
+
+
+    local_include_dirs: [
+        "se-thales",
     ],
 
     shared_libs: [
         "libbinder_ndk",
         "android.hardware.secure_element-V1-ndk",
-        "android.hardware.secure_element.thales.libse-gp",
+        "android.hardware.secure_element.thales.libse-thales",
         "libbase",
         "libcutils",
         "libhardware",
@@ -24,6 +29,7 @@ cc_binary {
         "-DANDROID",
         "-DENABLE_LOGGING=1",
         "-DENABLE_DEBUG=1",
+        "-DMULTI_THREADING=0",
         "-Wno-unused-parameter",
         "-Wno-unused-private-field",
         "-Wno-error",

@@ -22,7 +22,7 @@
 #include <limits.h>
 #include <log/log.h>
 
-#include "se-gto/libse-gto.h"
+#include "se-thales/libse-thales.h"
 #include "SecureElement.h"
 
 namespace android {
@@ -44,7 +44,7 @@ namespace implementation {
 #endif
 
 uint8_t getResponse[5] = {0x00, 0xC0, 0x00, 0x00, 0x00};
-static struct se_gto_ctx *ctx;
+static struct thalesEse_ctx *ctx;
 bool debug_log_enabled = false;
 
 SecureElement::SecureElement(const char* ese_name){
@@ -64,8 +64,8 @@ int SecureElement::resetSE(){
     isBasicChannelOpen = false;
     nbrOpenChannel = 0;
 
-    ALOGD("SecureElement:%s se_gto_reset start", __func__);
-    n = se_gto_reset(ctx);
+    ALOGD("SecureElement:%s thalesEse_reset start", __func__);
+    n = thalesEse_reset(ctx);
     if (n >= 0) {
         ALOGD("SecureElement:%s Reset Successfull\n", __func__);
     } else {
@@ -81,8 +81,8 @@ int SecureElement::cipRequest(){
     isBasicChannelOpen = false;
     nbrOpenChannel = 0;
 
-    ALOGD("SecureElement:%s se_gto_cip start", __func__);
-    n = se_gto_cip(ctx, atr, sizeof(atr));
+    ALOGD("SecureElement:%s thalesEse_cip start", __func__);
+    n = thalesEse_cip(ctx, atr, sizeof(atr));
     if (n >= 0) {
         atr_size = n;
         ALOGD("SecureElement:%s received ATR (CIP) of %d bytes\n", __func__, n);
@@ -107,22 +107,22 @@ int SecureElement::initializeSE() {
         return EXIT_SUCCESS;
     }
 
-    if (se_gto_new(&ctx) < 0) {
-        ALOGE("SecureElement:%s se_gto_new FATAL:%s", __func__,strerror(errno));
+    if (thalesEse_new(&ctx) < 0) {
+        ALOGE("SecureElement:%s thalesEse_new FATAL:%s", __func__,strerror(errno));
 
         return EXIT_FAILURE;
     }
-    se_gto_set_log_level(ctx, 3);
+    thalesEse_set_log_level(ctx, 3);
 
     openConfigFile(1);
 
-    if (se_gto_open(ctx) < 0) {
-        ALOGE("SecureElement:%s se_gto_open FATAL:%s", __func__,strerror(errno));
+    if (thalesEse_open(ctx) < 0) {
+        ALOGE("SecureElement:%s thalesEse_open FATAL:%s", __func__,strerror(errno));
         return EXIT_FAILURE;
     }
 
     if (resetSE() < 0) {
-        se_gto_close(ctx);
+        thalesEse_close(ctx);
         ctx = NULL;
         return EXIT_FAILURE;
     }
@@ -188,7 +188,7 @@ Return<void> SecureElement::transmit(const hidl_vec<uint8_t>& data, transmit_cb 
         if (apdu != NULL) {
             memcpy(apdu, data.data(), data.size());
             dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
-            resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
+            resp_len = thalesEse_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         }
 
         if (resp_len < 0) {
@@ -255,7 +255,7 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
 
         dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
 
-        resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
+        resp_len = thalesEse_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         ALOGD("SecureElement:%s Manage channel resp_len = %d", __func__,resp_len);
     }
 
@@ -320,7 +320,7 @@ Return<void> SecureElement::openLogicalChannel(const hidl_vec<uint8_t>& aid, uin
 
 send_logical:
         dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
-        resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
+        resp_len = thalesEse_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         ALOGD("SecureElement:%s selectApdu resp_len = %d", __func__,resp_len);
     }
 
@@ -451,7 +451,7 @@ Return<void> SecureElement::openBasicChannel(const hidl_vec<uint8_t>& aid, uint8
 
 send_basic:
         dump_bytes("CMD: ", ':', apdu, apdu_len, stdout);
-        resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
+        resp_len = thalesEse_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         ALOGD("SecureElement:%s selectApdu resp_len = %d", __func__,resp_len);
     }
 
@@ -571,7 +571,7 @@ Return<::android::hardware::secure_element::V1_0::SecureElementStatus> SecureEle
             apdu[index++] = 0x00;
             apdu_len = index;
 
-            resp_len = se_gto_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
+            resp_len = thalesEse_apdu_transmit(ctx, apdu, apdu_len, resp, 65536);
         }
         if (resp_len < 0) {
             mSecureElementStatus = SecureElementStatus::FAILED;
@@ -645,7 +645,7 @@ SecureElement::toint(char c)
 }
 
 int
-SecureElement::run_apdu(struct se_gto_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose)
+SecureElement::run_apdu(struct thalesEse_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose)
 {
     int sw;
 
@@ -653,7 +653,7 @@ SecureElement::run_apdu(struct se_gto_ctx *ctx, const uint8_t *apdu, uint8_t *re
         dump_bytes("APDU: ", ':', apdu, n, stdout);
 
 
-    n = se_gto_apdu_transmit(ctx, apdu, n, resp, sizeof(resp));
+    n = thalesEse_apdu_transmit(ctx, apdu, n, resp, sizeof(resp));
     if (n < 0) {
         ALOGE("SecureElement:%s FAILED: APDU transmit (%s).\n\n", __func__, strerror(errno));
         return -2;
@@ -692,22 +692,22 @@ SecureElement::parseConfigFile(FILE *f, int verbose)
         }
 
         pch = strtok(s," =;");
-        if (strcmp("GTO_DEV", pch) == 0) {
+        if (strcmp("DEV_NODE", pch) == 0) {
             pch = strtok(NULL, " =;");
             ALOGD("SecureElement:%s Defined node : %s", __func__, pch);
             if (strlen(pch) > 0 && strcmp("\n", pch) != 0 && strcmp("\0", pch) != 0 ) {
-                se_gto_set_gtodev(ctx, pch);
+                thalesEse_set_devnode(ctx, pch);
             }
-        } else if (strcmp("GTO_DEBUG", pch) == 0) {
+        } else if (strcmp("DEBUG_MODE", pch) == 0) {
             pch = strtok(NULL, " =;");
             ALOGD("SecureElement:%s Log state : %s", __func__, pch);
             if (strlen(pch) > 0 && strcmp("\n", pch) != 0 && strcmp("\0", pch) != 0 ) {
                 if (strcmp(pch, "enable") == 0) {
                     debug_log_enabled = true;
-                    se_gto_set_log_level(ctx, 4);
+                    thalesEse_set_log_level(ctx, 4);
                 } else {
                     debug_log_enabled = false;
-                    se_gto_set_log_level(ctx, 3);
+                    thalesEse_set_log_level(ctx, 3);
                 }
             }
         }
@@ -761,7 +761,7 @@ SecureElement::deinitializeSE() {
     ALOGD("SecureElement:%s start", __func__);
 
     if(checkSeUp){
-        if (se_gto_close(ctx) < 0) {
+        if (thalesEse_close(ctx) < 0) {
             mSecureElementStatus = SecureElementStatus::FAILED;
             internalClientCallback->onStateChange(false);
         } else {
