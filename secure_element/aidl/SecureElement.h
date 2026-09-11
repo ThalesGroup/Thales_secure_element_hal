@@ -21,8 +21,8 @@
 #include <algorithm>
 #include <string>
 
-#define VERSION_ESE_HAL "2.1"
-#define VERSION_NAME_ESE_HAL "gto_esehal_spi"
+#define VERSION_ESE_HAL "2.2"
+#define VERSION_NAME_ESE_HAL "esehal"
 
 #define CONFIG_FILE "/vendor/etc/libse-thales-hal.conf"
 
