@@ -10,8 +10,8 @@
  * See the License for the specific language governing permissions and limitations under the License.
 
  ****************************************************************************/
-#ifndef ANDROID_HARDWARE_SECURE_ELEMENT_V2_1_AIDL_SECUREELEMENT_H
-#define ANDROID_HARDWARE_SECURE_ELEMENT_V2_1_AIDL_SECUREELEMENT_H
+#ifndef ANDROID_HARDWARE_SECURE_ELEMENT_AIDL_SECUREELEMENT_H
+#define ANDROID_HARDWARE_SECURE_ELEMENT_AIDL_SECUREELEMENT_H
 
 #include <aidl/android/hardware/secure_element/BnSecureElement.h>
 #include <android-base/hex.h>
@@ -20,9 +20,9 @@
 #include <android/binder_process.h>
 #include <algorithm>
 #include <string>
+#include <optional>
 
-#define VERSION_ESE_HAL "2.2"
-#define VERSION_NAME_ESE_HAL "esehal"
+#include "se-thales/libse-thales.h"
 
 #define CONFIG_FILE "/vendor/etc/libse-thales-hal.conf"
 
@@ -51,7 +51,7 @@ struct SecureElement : public BnSecureElement {
 
     private:
 
-    struct thalesEse_ctx *ctx;
+    struct thalesEse_ctx *ctx = nullptr;
 
     uint8_t nbrOpenChannel = 0;
     bool isBasicChannelOpen = false;
@@ -59,7 +59,15 @@ struct SecureElement : public BnSecureElement {
     uint8_t atr[64];
     uint8_t atr_size;
     std::string config_filename;
-    std::shared_ptr<ISecureElementCallback> internalClientCallback;
+
+    int64_t start_time;
+    std::optional<bool> lockActivated_; // deactivation or activation done when init() method is called for the first time
+    std::optional<uid_t> lockUID_; // UID authorized when locked (if empty, only OMAPI, KEYMINT & Weaver are blocked)
+
+    std::shared_ptr<ISecureElementCallback> clientCallback_;
+    std::optional<bool> lastSecureElementStatusSend_; // last SE Status send by notify(); if empty, never send
+
+
     int initializeSE();
     int deinitializeSE();
     static int run_apdu(struct thalesEse_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose);
@@ -70,8 +78,12 @@ struct SecureElement : public BnSecureElement {
     int openConfigFile(int verbose);
     int parseConfigFile(FILE *f, int verbose);
     void notify(bool state, const char *message);
+    int internalCloseChannel(int8_t channelNumber);
+    std::optional<int> getPropertyValue(const std::string& propertyName);
+    bool isHalBlocked();
+
     ScopedAStatus _selectAID(const std::vector<uint8_t>& aid, uint8_t p2, size_t channelNumber, std::variant<::aidl::android::hardware::secure_element::LogicalChannelResponse*, std::vector<uint8_t>*> aidl_return);
 };
 
 } //se
-#endif  // ANDROID_HARDWARE_SECURE_ELEMENT_V2_1_AIDL_SECUREELEMENT_H
+#endif  // ANDROID_HARDWARE_SECURE_ELEMENT_AIDL_SECUREELEMENT_H

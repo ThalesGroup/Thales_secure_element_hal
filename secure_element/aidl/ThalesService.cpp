@@ -13,12 +13,14 @@
 #include <dlfcn.h>
 #include <log/log.h>
 
-#include "SecureElement.h"
 #include <aidl/android/hardware/secure_element/BnSecureElement.h>
 #include <android-base/hex.h>
 #include <android-base/logging.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
+
+#include "SecureElement.h"
+#include "SecureElementVersion.h"
 
 typedef int (*STEsePreProcess)(void);
 
