@@ -154,10 +154,10 @@ int SecureElement::resetSE(){
     return n;
 }
 
-bool SecureElement::isHalBlocked(){
+bool SecureElement::isHalLocked(){
 
     ALOGD("SecureElement:%s checking if application caller shall be blocked...", __func__);
-    bool blocked = true;
+    bool accessLocked = true;
 
     uid_t uid = AIBinder_getCallingUid();
     ALOGD("SecureElement:%s caller UID : %d", __func__, uid);
@@ -190,7 +190,7 @@ bool SecureElement::isHalBlocked(){
             if (now >= start_time + lockDuration.value()) 
             {
                 ALOGD("SecureElement:%s SE HAL access not locked (lock duration exceeded)", __func__);
-                blocked = false;
+                accessLocked = false;
             }
             else
             {
@@ -200,7 +200,7 @@ bool SecureElement::isHalBlocked(){
         else
         {
             ALOGD("SecureElement:%s SE HAL access not locked (lock deactivated by flag)", __func__);
-            blocked = false;
+            accessLocked = false;
         }
     }
     else
@@ -210,10 +210,10 @@ bool SecureElement::isHalBlocked(){
 
         if( !lockDuration.has_value())
             ALOGW("SecureElement:%s property[%s] is undefined, empty or not an integer", __func__, propertySEHalLockDuration_.c_str());
-        blocked = false;
+        accessLocked = false;
     }
 
-    return blocked;
+    return accessLocked;
 }
 
 ScopedAStatus SecureElement::_selectAID(const std::vector<uint8_t>& aid, uint8_t p2, size_t channelNumber, std::variant<::aidl::android::hardware::secure_element::LogicalChannelResponse*, std::vector<uint8_t>*> aidl_return)
@@ -505,6 +505,13 @@ ScopedAStatus SecureElement::transmit(const std::vector<uint8_t>& data, std::vec
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
+    {
+        ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
+        ALOGD("SecureElement:%s -- end", __func__);
+        return ScopedAStatus::fromServiceSpecificErrorWithMessage(IOERROR, "eSE HAL access locked for SE Update");
+    }
+
     int resp_len = 0;
     ScopedAStatus status = ScopedAStatus::fromServiceSpecificError(FAILED);
 
@@ -544,6 +551,13 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
     size_t channelNumber = 0xff;
 
     int mSecureElementStatus = IOERROR;
+
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
+    {
+        ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
+        ALOGD("SecureElement:%s -- end", __func__);
+        return ScopedAStatus::fromServiceSpecificErrorWithMessage(IOERROR, "eSE HAL access locked for SE Update");
+    }  
 
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
@@ -608,6 +622,13 @@ ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, i
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
+    {
+        ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
+        ALOGD("SecureElement:%s -- end", __func__);
+        return ScopedAStatus::fromServiceSpecificErrorWithMessage(IOERROR, "eSE HAL access locked for SE Update");
+    }  
+
     if (isBasicChannelOpen) {
         ALOGE("SecureElement:%s: Basic Channel already open", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
@@ -639,7 +660,7 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
 
-    if( lockActivated_.has_value() && lockActivated_.value() && isHalBlocked()) 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
     {
         ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
@@ -992,10 +1013,11 @@ ScopedAStatus SecureElement::reset() {
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
 
-    if( lockActivated_.has_value() && lockActivated_.value() && isHalBlocked()) 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
     {
-        ALOGW("SecureElement:%s isHalBlocked == True --> Returning IOERROR", __func__);
-        return ScopedAStatus::fromServiceSpecificErrorWithMessage(IOERROR, "eSE HAL locked for SE Update");
+        ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
+        ALOGD("SecureElement:%s -- end", __func__);
+        return ScopedAStatus::fromServiceSpecificErrorWithMessage(IOERROR, "eSE HAL access locked for SE Update");
     }
 
     int status = FAILED;

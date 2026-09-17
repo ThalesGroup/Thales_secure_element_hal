@@ -80,7 +80,7 @@ struct SecureElement : public BnSecureElement {
     void notify(bool state, const char *message);
     int internalCloseChannel(int8_t channelNumber);
     std::optional<int> getPropertyValue(const std::string& propertyName);
-    bool isHalBlocked();
+    bool isHalLocked();
 
     ScopedAStatus _selectAID(const std::vector<uint8_t>& aid, uint8_t p2, size_t channelNumber, std::variant<::aidl::android::hardware::secure_element::LogicalChannelResponse*, std::vector<uint8_t>*> aidl_return);
 };
