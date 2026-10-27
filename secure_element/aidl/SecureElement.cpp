@@ -24,8 +24,6 @@
 #include <limits.h>
 #include <log/log.h>
 #include <android-base/properties.h>
-#include <android/binder_ibinder.h>
-#include <android/binder_ibinder_platform.h>
 #include <android-base/chrono_utils.h>
 #include <android-base/parseint.h>
 #include <private/android_filesystem_config.h>
@@ -33,6 +31,9 @@
 #include <chrono>
 #include <thread>
 
+#ifdef LEGACY
+#include "se-thales-legacy/libse-thales.h"
+#endif // LEGACY
 #include "SecureElement.h"
 
 #define VENDOR_LIB_PATH "/vendor/lib64/"
@@ -122,55 +123,212 @@ class NotificationThreadLockGuard
 
 
 
-SecureElement::SecureElement(const char* ese_name){
+uint32_t SecureElement::lastIdValue_ = 0; // Initial value 
+
+SecureElement::SecureElement(const char* ese_name)
+    :callerDeathRecipient_(AIBinder_DeathRecipient_new(onCallerDied)) {
     ALOGI("SecureElement:%s -- begin", __func__);
-    
-    nbrOpenChannel = 0;
-    ctx = NULL;
+
+    ctx = nullptr;
 
     config_filename = CONFIG_FILE;
 
-    start_time = duration_cast<std::chrono::seconds>(
-            android::base::boot_clock::now().time_since_epoch()).count();
+    start_time = duration_cast<std::chrono::seconds>( android::base::boot_clock::now().time_since_epoch()).count();
 
     ALOGI("SecureElement:%s -- end", __func__);    
+}
+
+SecureElement::~SecureElement()
+{
+    ALOGD("SecureElement:%s start", __func__);
+
+    ALOGD("SecureElement:%s Cleanup resources ...", __func__);
+    const SecureElementApiLockGuard lockApi(mutexApi_);
+    
+    // Close all opened channel
+    if( !channelOpened_.empty() )
+    {
+        ALOGD("SecureElement:%s Closing opened channel ...", __func__);
+        for( auto it = channelOpened_.begin(); it != channelOpened_.end();)
+        {
+            auto channelNumber = it->first;
+            auto aid = it->second.aid_;
+            auto pid = it->second.pid_;
+            auto uid = it->second.uid_;
+
+            ALOGI("SecureElement:%s Channel #%d not closed (PID:%d, UID:%d, AID:%s) -> close it ...", __func__, channelNumber, pid, uid, convertHexaToString(aid).c_str());
+            if( internalCloseChannel(channelNumber, false) == SUCCESS)
+            {
+                ALOGI("SecureElement:%s Channel #%d closed", __func__, channelNumber);
+                it = channelOpened_.erase(it);
+            }
+            else
+            {
+                ALOGW("SecureElement:%s Unable to Channel #%d", __func__, channelNumber);
+                it ++;
+            }
+        }        
+    }
+
+    ALOGD("SecureElement:%s cleanup caller list...", __func__);
+    for (auto it = callers_.begin(); it != callers_.end(); ) {
+        it = callers_.erase(it); // unique_ptr détruit DeathCookie ici
+    }
+
+    ALOGD("SecureElement:%s terminated", __func__);
+}
+
+// Manage end of life of application caller
+void SecureElement::onCallerDied(void* ptrCookie)
+{
+    ALOGD("SecureElement:%s start", __func__);
+
+    const auto* deathCookie = static_cast<const DeathCookie*>(ptrCookie);
+    if( deathCookie != nullptr)
+    {
+        pid_t callerPid = deathCookie->pid_;
+        uid_t callerUid =  deathCookie->uid_;
+        uint32_t callerId  = deathCookie->callerId_;
+
+        ALOGI("SecureElement:%s caller PID=%d UID=%d (clientId #%u) died", __func__, callerPid, callerUid, callerId);
+
+        SecureElement* ptrRefSecureElement = deathCookie->ptrRefSecureElement_;
+        if( ptrRefSecureElement != nullptr )
+        {
+            std::thread([ptrRefSecureElement, callerId, callerPid, callerUid]() {
+                ALOGD("SecureElement:%s Starting dedicated thread to cleanup resource of dead application (clientId #%u)", __func__, callerId);
+                const SecureElementApiLockGuard lockApi(mutexApi_);
+                ptrRefSecureElement->cleanupCaller(callerId, callerPid, callerUid);
+            }).detach();    
+        }
+        else
+            ALOGW("SecureElement:%s do nothing because ptrRefSecureElement is null", __func__);
+    }
+
+    ALOGD("SecureElement:%s terminated", __func__);
+}
+
+void SecureElement::cleanupCaller(uint32_t callerId, pid_t callerPid, uid_t callerUid)
+{
+    ALOGD("SecureElement:%s start", __func__);
+    
+    ALOGI("SecureElement:%s searching data for callerId #%u ...", __func__, callerId);
+    for( auto it = callers_.begin(); it != callers_.end(); )
+    {
+        if( it->deathCookie_->callerId_ == callerId)
+        {
+            // Remove it
+            ALOGI("SecureElement:%s erasing data for callerId #%u (PID:%d, UID:%d)", __func__, callerId, it->deathCookie_->pid_, it->deathCookie_->uid_ );
+            it = callers_.erase(it); // When erased, std::unique_ptr<DeathCookie> is free automatically
+            break;
+        }
+        else
+            ++ it;
+    }
+
+    // Check if application caller have or not other entries (to known if application caller is terminated)
+    ALOGI("SecureElement:%s Searching remaining entry for PID:%d", __func__, callerPid);
+    uint16_t countRemainingEntry = 0;
+    for( auto it = callers_.begin(); it != callers_.end(); ++it)
+    {
+        if( it->deathCookie_->pid_ == callerPid)
+        {
+            ALOGV("SecureElement:%s entry found with callerId #%u for PID:%d", __func__, it->deathCookie_->callerId_);
+            countRemainingEntry ++;
+        }
+    }
+
+    if( countRemainingEntry == 0 )
+    {
+        ALOGD("SecureElement:%s No entry found for PID:%d => caller application terminated", __func__, callerPid);
+
+        if( callerUid == AID_SECURE_ELEMENT)
+            ALOGI("SecureElement:%s SEUpdate application terminated", __func__);
+        else if( callerUid == AID_JC_WEAVER)
+            ALOGI("SecureElement:%s Weaver application terminated", __func__);
+        else if( callerUid == AID_JC_STRONGBOX)
+            ALOGI("SecureElement:%s StrongBox application terminated", __func__);
+
+
+        // Seach channel opened by application terminated
+        for( auto it = channelOpened_.begin(); it != channelOpened_.end();)
+        {
+            if( it->second.pid_ == callerPid)
+            {
+                auto channelNumber = it->first;
+                auto aid = it->second.aid_;
+
+                ALOGI("SecureElement:%s Channel #%d not closed (AID:%s) -> close it ...", __func__, channelNumber, convertHexaToString(aid).c_str());
+                if( internalCloseChannel(channelNumber, false) == SUCCESS)
+                {
+                    ALOGI("SecureElement:%s Channel #%d closed", __func__, channelNumber);
+                    it = channelOpened_.erase(it);
+                }
+                else
+                {
+                    ALOGW("SecureElement:%s Unable to close Channel #%d", __func__, channelNumber);
+                    it ++;
+                }
+            }
+            else
+                it ++;            
+        }
+    }
+    else
+    {
+        ALOGI("SecureElement:%s %d entry found for PID:%d => no potential channel cleanup", __func__, countRemainingEntry, callerPid);
+    }
+
+    ALOGD("SecureElement:%s terminated", __func__);
 }
 
 int SecureElement::resetSE(){
     int n;
 
-    isBasicChannelOpen = false;
-    nbrOpenChannel = 0;
-
     ALOGD("SecureElement:%s thalesEse_reset start", __func__);
+
+#ifndef LEGACY
     n = thalesEse_reset(ctx);
     if (n >= 0) {
         ALOGD("SecureElement:%s Reset Successfull\n", __func__);
+        channelOpened_.clear();
     } else {
         ALOGE("SecureElement:%s Failed to reset\n", __func__);
     }
+#else
+    n = thalesEse_reset(ctx, atr, sizeof(atr));
+    if (n >= 0) {
+        atr_size = n;
+        ALOGD("SecureElement:%s received ATR of %d bytes\n", __func__, n);
+        dump_bytes("ATR: ", atr, n);
+        channelOpened_.clear();
+    } else {
+        ALOGE("SecureElement:%s Failed to reset and get ATR: %s\n", __func__, strerror(errno));
+    }
+#endif // LEGACY
 
     return n;
 }
 
+#ifndef LEGACY
 int SecureElement::cipRequest(){
-    int n;
-
-    isBasicChannelOpen = false;
-    nbrOpenChannel = 0;
 
     ALOGD("SecureElement:%s thalesEse_cip start", __func__);
-    n = thalesEse_cip(ctx, atr, sizeof(atr));
+
+    int n = thalesEse_cip(ctx, atr, sizeof(atr));
     if (n >= 0) {
         atr_size = n;
+
         ALOGD("SecureElement:%s received ATR (CIP) of %d bytes\n", __func__, n);
         dump_bytes("ATR (CIP): ", atr, n);
+        channelOpened_.clear();
     } else {
         ALOGE("SecureElement:%s Failed to reset and get ATR (CIP): %s\n", __func__, strerror(errno));
     }
 
     return n;
 }
+#endif // LEGACY
 
 bool SecureElement::isHalLocked(){
 
@@ -234,7 +392,7 @@ bool SecureElement::isHalLocked(){
     return accessLocked;
 }
 
-ScopedAStatus SecureElement::_selectAID(const std::vector<uint8_t>& aid, uint8_t p2, size_t channelNumber, std::variant<::aidl::android::hardware::secure_element::LogicalChannelResponse*, std::vector<uint8_t>*> aidl_return)
+ScopedAStatus SecureElement::_selectAID(const std::vector<uint8_t>& aid, uint8_t p2, size_t channelNumber, std::vector<uint8_t>& response)
 {
     /*Start Sending select command after Manage Channel is successful.*/
     ALOGD("SecureElement:%s Sending selectApdu", __func__);
@@ -245,13 +403,12 @@ ScopedAStatus SecureElement::_selectAID(const std::vector<uint8_t>& aid, uint8_t
     } else {
         ext_channelNumber = channelNumber;
     }
-    nbrOpenChannel++;
 
     int mSecureElementStatus = IOERROR;
 
     std::vector<uint8_t> cmdApdu;
     std::vector<uint8_t> respApdu(MAX_APDU_SIZE);
-    std::vector<uint8_t> response;
+
     int resp_len = 0;
     int getResponseOffset = 0;
     uint16_t sw = 0;
@@ -333,29 +490,12 @@ send:
             mSecureElementStatus = UNSUPPORTED_OPERATION;
     }
 
-    /*Check if SELECT command failed, close oppened channel*/
+    // Check if SELECT command failed
     if (mSecureElementStatus != SUCCESS) {
-        internalCloseChannel(channelNumber);
         return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     }
 
     ALOGD("SecureElement:%s mSecureElementStatus = %d", __func__, (int)mSecureElementStatus);
-    if(std::holds_alternative<::aidl::android::hardware::secure_element::LogicalChannelResponse*> (aidl_return)){
-        ::aidl::android::hardware::secure_element::LogicalChannelResponse* val = std::get<::aidl::android::hardware::secure_element::LogicalChannelResponse*>(aidl_return);
-      *val = LogicalChannelResponse{
-          .channelNumber = static_cast<int8_t>(channelNumber),
-          .selectResponse = response,
-      };
-    }
-    else if(std::holds_alternative<std::vector<uint8_t>*> (aidl_return)){
-        std::vector<uint8_t>* val = std::get<std::vector<uint8_t>*>(aidl_return);
-        *val = response;
-    }
-
-
-    if(ext_channelNumber == 0)
-        isBasicChannelOpen = true;
-
     if(mSecureElementStatus != SUCCESS)
         return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     else
@@ -439,10 +579,14 @@ int SecureElement::initializeSE() {
         ALOGD("SecureElement:%s -- end", __func__);
         return EXIT_FAILURE;
     }
-
+    
+#ifndef LEGACY
     if (cipRequest() < 0) {
+#else
+    if (resetSE() < 0) {
+#endif // LEGACY
         thalesEse_close(ctx);
-        ctx = NULL;
+        ctx = nullptr;
         ALOGD("SecureElement:%s -- end", __func__);
         return EXIT_FAILURE;
     }
@@ -453,18 +597,65 @@ int SecureElement::initializeSE() {
     return EXIT_SUCCESS;
 }
 
-ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>& clientCallback) {
-
+ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>& clientCallback) 
+{
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
     
-    if (clientCallback == nullptr) {
+    if (clientCallback == nullptr) 
+    {
         ALOGE("SecureElement:%s clientCallback == nullptr", __func__);
         return ScopedAStatus::fromExceptionCode(EX_NULL_POINTER);
     }
+
+    //////////////////////////////////
+    // Register application caller 
     
+    pid_t callerPid = AIBinder_getCallingPid();
+    uid_t callerUid = AIBinder_getCallingUid();
+    ALOGD("SecureElement:%s Caller: PID=%d, UID=%d", __func__, callerPid, callerUid);
+//    registerCaller( clientCallback, callerPid, callerUid);
+
+    // Check if caller is already registered
+    auto counter = std::count_if(callers_.begin(), callers_.end(), [callerPid] (const CallerInfo& callerInfo) {
+        return ( callerInfo.deathCookie_ != nullptr ? callerInfo.deathCookie_->pid_ == callerPid : 0 );} );
+
+    if (counter > 0)
+        ALOGD("SecureElement:%s PID=%d have already %d registration(s)", __func__, static_cast<int> (callerPid), static_cast<int> (counter));
+
+    ++lastIdValue_;
+
+    ALOGD("SecureElement:%s registering application caller with id #%u ...", __func__, lastIdValue_);
+
+    uint32_t callerId = lastIdValue_;
+    CallerInfo callerInfo;
+    callerInfo.binder_ = clientCallback->asBinder();
+    callerInfo.clientCallback_ = clientCallback;
+    callerInfo.deathCookie_ = std::make_unique<DeathCookie>(DeathCookie{callerId, this, callerPid, callerUid});
+    if( callerInfo.deathCookie_ != nullptr)
+    {
+        ALOGD("SecureElement:%s death cookie created", __func__);
+
+        binder_status_t binder_status = AIBinder_linkToDeath( callerInfo.binder_.get(), callerDeathRecipient_.get(), callerInfo.deathCookie_.get());
+        if (binder_status == STATUS_OK)
+        {
+            LOG(DEBUG) << "SecureElement:" << __func__ << " AIBinder_linkToDeath() done successfully";
+
+            // Add new called information in list
+            ALOGD("SecureElement:%s registering PID %d (callerId #%u)...", __func__, callerPid, callerId);
+            callers_.push_back(std::move(callerInfo));
+        }
+        else
+        {
+            LOG(WARNING) << "SecureElement:" << __func__ << " AIBinder_linkToDeath() failed => no monitoring!";
+            callerInfo.deathCookie_.reset(); // Free unique_ptr
+        }
+    }
+    else
+        ALOGW("SecureElement:%s Unable to create death cookie!", __func__);
+
     // Check if OMAPI caller (to save callback)
-    if (AIBinder_getCallingUid() == AID_SECURE_ELEMENT)
+    if (callerUid == AID_SECURE_ELEMENT)
     {
         LOG(INFO) << "SecureElement:" << __func__ << " Called by Secure Element (OMAPI) -> saving callback ";
         clientCallback_ = clientCallback;
@@ -495,6 +686,43 @@ ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>&
 
     ALOGD("SecureElement:%s -- end", __func__);
     return ScopedAStatus::ok();
+}
+
+void SecureElement::registerCaller(const std::shared_ptr<ISecureElementCallback>& clientCallback, pid_t callerPid, uid_t callerUid)
+{
+    ALOGD("SecureElement:%s -- begin", __func__);
+
+    // Check if caller is already registered
+    auto counter = std::count_if(callers_.begin(), callers_.end(), [callerPid] (const CallerInfo& callerInfo) {
+        return ( callerInfo.deathCookie_ != nullptr ? callerInfo.deathCookie_->pid_ == callerPid : 0 );} );
+
+    if (counter > 0)
+        ALOGD("SecureElement:%s PID=%d have already %d registration(s)", __func__, callerPid, static_cast<int> (counter));
+
+    ++lastIdValue_;
+    
+    uint32_t callerId = lastIdValue_;
+    CallerInfo callerInfo;
+    callerInfo.binder_ = clientCallback_->asBinder();
+    callerInfo.clientCallback_ = clientCallback;
+    callerInfo.deathCookie_ = std::make_unique<DeathCookie>(DeathCookie{callerId, this, callerPid, callerUid});
+
+    binder_status_t binder_status = AIBinder_linkToDeath( callerInfo.binder_.get(), callerDeathRecipient_.get(), callerInfo.deathCookie_.get());
+    if (binder_status == STATUS_OK)
+    {
+        LOG(DEBUG) << "SecureElement:" << __func__ << " AIBinder_linkToDeath() done successfully";
+
+        // Add new called information in list
+        ALOGD("SecureElement:%s registering PID %d (callerId #%u)...", __func__, callerPid, callerId);   
+        callers_.push_back(std::move(callerInfo));
+    }
+    else
+    {
+        LOG(WARNING) << "SecureElement:" << __func__ << " AIBinder_linkToDeath() failed => no monitoring!";
+        callerInfo.deathCookie_.reset(); // Free unique_ptr
+    }
+
+    ALOGD("SecureElement:%s -- end", __func__);
 }
 
 ScopedAStatus SecureElement::getAtr(std::vector<uint8_t>* aidl_return) {
@@ -535,7 +763,7 @@ ScopedAStatus SecureElement::transmit(const std::vector<uint8_t>& data, std::vec
 
     std::vector<uint8_t> result;
 
-    if (checkSeUp && nbrOpenChannel != 0) {
+    if (checkSeUp && !channelOpened_.empty()) {
         dump_bytes("CMD: ", data.data(), data.size());
         resp_len = thalesEse_apdu_transmit(ctx, data.data(), data.size(), resp, sizeof(resp));
 
@@ -554,6 +782,7 @@ ScopedAStatus SecureElement::transmit(const std::vector<uint8_t>& data, std::vec
         ALOGE("SecureElement:%s: transmit failed! No channel is open", __func__);
         status = ScopedAStatus::fromServiceSpecificError(CHANNEL_NOT_AVAILABLE);
     }
+
     aidl_return->assign(result.begin(), result.end());
     return status;
 }
@@ -564,7 +793,7 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
 
     std::vector<uint8_t> respApdu(MAX_APDU_SIZE);
     int resp_len = 0;
-    size_t channelNumber = 0xff;
+    uint8_t channelNumber = 0xff;
 
     int mSecureElementStatus = IOERROR;
 
@@ -594,7 +823,7 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
     resp_len = thalesEse_apdu_transmit(ctx, _openChannel, sizeof(_openChannel), respApdu.data(), respApdu.size());
     ALOGD("SecureElement:%s Manage channel resp_len = %d", __func__,resp_len);
 
-    if (resp_len >= 0 && resp_len <= respApdu.size()){
+    if (resp_len >= 2 && resp_len <= respApdu.size()){
         //no overflow, OK
         respApdu.resize(resp_len);
         dump_bytes("RESP: ", respApdu.data(), respApdu.size());
@@ -611,10 +840,11 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
     }
 
     uint16_t sw = (respApdu.at(respApdu.size() - 2) << 8) + respApdu.at(respApdu.size() - 1);
-    if (sw == 0x9000)
+    if (respApdu.size() == 3 && sw == 0x9000)
     {
         channelNumber = respApdu.at(0);
-        ALOGD("SecureElement:%s Logical channel #%d opened", __func__, static_cast<int>(channelNumber));
+
+        ALOGD("SecureElement:%s Logical channel #%d opened", __func__, channelNumber);
         mSecureElementStatus = SUCCESS;
     }
     else
@@ -628,7 +858,25 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
         return ScopedAStatus::fromServiceSpecificError(mSecureElementStatus);
     }
 
-    ScopedAStatus status = SecureElement::_selectAID(aid, p2, channelNumber, aidl_return);
+    std::vector<uint8_t> response;
+    ScopedAStatus status = SecureElement::_selectAID(aid, p2, channelNumber, response);
+    if( status.isOk())
+    {
+        ALOGD("SecureElement:%s select AID done successfully on channel #%d", __func__, channelNumber);
+
+        *aidl_return = LogicalChannelResponse{
+            .channelNumber = static_cast<int8_t>(channelNumber),
+            .selectResponse = response,
+        };
+
+        channelOpened_.insert(std::pair<int8_t, ChannelInfo>( static_cast<int8_t>(channelNumber), 
+            { AIBinder_getCallingPid(), AIBinder_getCallingUid(), aid} ));
+    }
+    else
+    {
+        ALOGD("SecureElement:%s Unable to select AID, closing opened channel...", __func__);
+        internalCloseChannel(channelNumber, false);
+    }
 
     ALOGD("SecureElement:%s -- end", __func__);
     return status;
@@ -643,9 +891,9 @@ ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, i
         ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
         return ScopedAStatus::fromServiceSpecificErrorWithMessage(IOERROR, "eSE HAL access locked for SE Update");
-    }  
-        
-    if (isBasicChannelOpen) {
+    }
+
+    if (!channelOpened_.empty() && channelOpened_.find(BASIC_CHANNEL) != channelOpened_.end() ) {
         ALOGE("SecureElement:%s: Basic Channel already open", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
         return ScopedAStatus::fromServiceSpecificError(CHANNEL_NOT_AVAILABLE);
@@ -666,7 +914,30 @@ ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, i
         return ScopedAStatus::fromServiceSpecificError(FAILED);
     }
 
-    ScopedAStatus status = _selectAID(aid, p2, BASIC_CHANNEL, aidl_return);
+    std::vector<uint8_t> response;
+    ScopedAStatus status = _selectAID(aid, p2, BASIC_CHANNEL, response);
+    if( status.isOk() )
+    {
+        // Select done successfully => basic channel opened
+        ALOGD("SecureElement:%s Basic channel opened successfully", __func__);
+
+        *aidl_return = response;
+
+        channelOpened_.insert(std::pair<int8_t, ChannelInfo>( BASIC_CHANNEL, 
+            { AIBinder_getCallingPid(), AIBinder_getCallingUid(), aid} ));  
+    }
+    else
+    {
+        ALOGW("SecureElement:%s Unable to open Basic channel!", __func__);
+        if( channelOpened_.empty() )
+        {
+            ALOGD("SecureElement:%s No channel opened -> deinitialize SE...", __func__);
+            if (deinitializeSE() != SUCCESS) {
+                ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
+            }
+        }
+    }
+
     ALOGD("SecureElement:%s -- end", __func__);
 
     return status;
@@ -689,7 +960,7 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
         return ScopedAStatus::fromServiceSpecificErrorWithMessage(FAILED, "eSE HAL is deinitialized");
     }
 
-    int closeChannelStatus = internalCloseChannel(channelNumber);
+    int closeChannelStatus = internalCloseChannel(channelNumber, true);
 
     ALOGD("SecureElement:%s -- end", __func__);
     if(closeChannelStatus != SUCCESS)
@@ -698,7 +969,7 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
         return ScopedAStatus::ok();
 }
 
-int SecureElement::internalCloseChannel(int8_t channelNumber)
+int SecureElement::internalCloseChannel(int8_t channelNumber, bool searchAndRemoveEntry)
 {
     ALOGD("SecureElement:%s -- begin", __func__);
 
@@ -714,9 +985,8 @@ int SecureElement::internalCloseChannel(int8_t channelNumber)
         ALOGE("SecureElement:%s Channel not supported", __func__);
         closeChannelStatus = FAILED;
     } else if (channelNumber == 0) {
-        isBasicChannelOpen = false;
+        ALOGD("SecureElement:%s Closing basic channel...", __func__);
         closeChannelStatus = SUCCESS;
-        nbrOpenChannel--;
     } else {
         ALOGD("SecureElement:%s Closing logical channel #%d ...", __func__, channelNumber);
 
@@ -734,7 +1004,6 @@ int SecureElement::internalCloseChannel(int8_t channelNumber)
             if ((resp[resp_len - 2] == 0x90) && (resp[resp_len - 1] == 0x00)) {
                 closeChannelStatus = SUCCESS;
                 ALOGD("SecureElement:%s Logical channel #%d closed successfully", __func__, channelNumber);
-                nbrOpenChannel--;
             } else {
                 closeChannelStatus = FAILED;
                 ALOGW("SecureElement:%s Closing logical channel #%d failed", __func__, channelNumber);
@@ -749,8 +1018,21 @@ int SecureElement::internalCloseChannel(int8_t channelNumber)
         }
     }
 
-    if (nbrOpenChannel == 0 && isBasicChannelOpen == false) {
-        ALOGD("SecureElement:%s All Channels are closed", __func__);
+    if(closeChannelStatus == SUCCESS && searchAndRemoveEntry)
+    {
+        auto mapEntry = channelOpened_.find(channelNumber);
+        if( mapEntry != channelOpened_.end())
+        {
+            ALOGD("SecureElement:%s Erasing channel #%d from monitoring ...", __func__, channelNumber);
+            channelOpened_.erase(mapEntry);
+            ALOGD("SecureElement:%s channel #%d erased from monitoring", __func__, channelNumber);
+        }   
+        else
+            ALOGW("SecureElement:%s Unable to erase channel #%d from monitoring (entry not found)!", __func__, channelNumber);
+    }
+
+    if (closeChannelStatus == SUCCESS && channelOpened_.empty()) {
+        ALOGD("SecureElement:%s All Channels are closed, deinitialize SE...", __func__);
         if (deinitializeSE() != SUCCESS) {
             ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
         }
@@ -840,8 +1122,6 @@ SecureElement::toint(char c)
 int
 SecureElement::run_apdu(struct thalesEse_ctx *ctx, const uint8_t *apdu, uint8_t *resp, int n, int verbose)
 {
-    int sw;
-
     if (verbose)
         dump_bytes("APDU: ", apdu, n);
 
@@ -857,7 +1137,7 @@ SecureElement::run_apdu(struct thalesEse_ctx *ctx, const uint8_t *apdu, uint8_t 
     }
 
     if (verbose) {
-        sw = (resp[n - 2] << 8) | resp[n - 1];
+        int sw = (resp[n - 2] << 8) | resp[n - 1];
         printf("%d bytes, SW=0x%04x\n", n - 2, sw);
         if (n > 2)
             dump_bytes("RESP: ", resp, n - 2);
@@ -903,7 +1183,7 @@ SecureElement::parseConfigFile(FILE *f, int verbose)
     char buffer[1024];
     int line_num = 0;
 
-    while (fgets(buffer, sizeof(buffer), f) != NULL) {
+    while (fgets(buffer, sizeof(buffer), f) != nullptr) {
         line_num++;
 
         std::string line(buffer);
@@ -972,16 +1252,13 @@ SecureElement::parseConfigFile(FILE *f, int verbose)
 }
 
 
-int
-SecureElement::openConfigFile(int verbose)
+int SecureElement::openConfigFile(int verbose)
 {
-    int   r;
-    FILE *f;
-
+    int   r =-1;
 
     /* filename is not NULL */
     ALOGD("SecureElement:%s Open Config file : %s", __func__, config_filename.c_str());
-    f = fopen(config_filename.c_str(), "r");
+    FILE* f = fopen(config_filename.c_str(), "r");
     if (f) {
         r = parseConfigFile(f, verbose);
         if (r == -1) {
@@ -993,7 +1270,6 @@ SecureElement::openConfigFile(int verbose)
             ALOGE("SecureElement:%s Error close %s Failed", __func__, config_filename.c_str());
         }
     } else {
-        r = -1;
         ALOGE("SecureElement:%s Error open %s Failed", __func__, config_filename.c_str());
     }
     return r;
@@ -1009,10 +1285,9 @@ int SecureElement::deinitializeSE() {
             mSecureElementStatus = FAILED;
             notify(false, "SE Initialized failed");
         } else {
-            ctx = NULL;
+            ctx = nullptr;
             mSecureElementStatus = SUCCESS;
-            isBasicChannelOpen = false;
-            nbrOpenChannel = 0;
+            channelOpened_.clear();
         }
         checkSeUp = false;
     }else{
@@ -1076,6 +1351,20 @@ std::optional<int> SecureElement::getPropertyValue(const std::string& propertyNa
     }
 
     return propertyValue;
+}
+
+std::string SecureElement::convertHexaToString(const std::vector<uint8_t>& vector)
+{
+	std::string text;
+
+	char buff[4];
+	for (uint8_t byteValue : vector)
+	{
+		std::snprintf(buff, sizeof(buff), "%02X", byteValue);
+		text.append(buff);
+	}
+
+	return text;
 }
 
 }

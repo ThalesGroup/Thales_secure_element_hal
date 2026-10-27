@@ -891,7 +891,6 @@ isot1_get_atr(struct t1_state *t1, void *atr, size_t n)
 
     if (t1->need_cip)
         r = t1_cip(t1);
-                printf("\nr = %d\n", r);
 
     if (r >= 0) {
         if (t1->atr_length <= n) {

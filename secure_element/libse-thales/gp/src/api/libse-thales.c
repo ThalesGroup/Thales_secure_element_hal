@@ -201,8 +201,13 @@ thalesEse_set_devnode(struct thalesEse_ctx *ctx, const char *devNode)
 {
     if (ctx == NULL)
         return;
+    if (devNode == NULL)
+        return;
+    if (ctx->devNode != NULL)
+        free((void*)ctx->devNode);
     ctx->devNode = strdup(devNode);
 }
+
 
 SE_THALES_EXPORT void
 thalesEse_set_frequency(struct thalesEse_ctx *ctx, int frequency)
@@ -239,7 +244,7 @@ thalesEse_new(struct thalesEse_ctx **c)
         isot1_init(&ctx->t1);
 
         ctx->log_fn = log_stderr;
-        ctx->devNode = DEFAULT_DEVICE_NODE;
+        ctx->devNode = strdup(DEFAULT_DEVICE_NODE);
         ctx->frequency = FREQUENCY;
     #ifdef IRQ_MODE
         ctx->interrupt_gpio_chipset = IRQ_GPIO_CHIP;
@@ -342,7 +347,7 @@ SE_THALES_EXPORT int
 thalesEse_open(struct thalesEse_ctx *ctx)
 {
     int err = -1;
-    if (ctx == NULL)
+    if (ctx == NULL || ctx->devNode == NULL)
         return err;
     if(_thalesEse_lock_mutex() == 0){ //0 for success else mutex not available
         info("eSE THALES: using %s\n", ctx->devNode);
@@ -418,6 +423,9 @@ thalesEse_close(struct thalesEse_ctx *ctx)
         //clear log buffer
         log_teardown(ctx);
     #endif /* ifdef ENABLE_LOGGING */
+
+        if( ctx->devNode != NULL)
+            free((void*) ctx->devNode);
         free(ctx);
         _thalesEse_unlock_mutex();
     }

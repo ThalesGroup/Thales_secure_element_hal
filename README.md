@@ -64,3 +64,14 @@ The notification callback is registered during the `init()` method under the fol
 - If a callback is already registered, it is replaced by the new OMAPI callback.
 - State notifications are sent only when the Secure Element state changes.
 - Notifications are dispatched asynchronously on a dedicated thread, to prevent re-entrant calls (in case of callback method calls directly SE HAL).
+
+---
+ 
+# Client application lifecycle monitoring
+
+- On each `init()` call, the service registers the client via `AIBinder_linkToDeath()`, associating it with a unique `DeathCookie` (callerId, PID, UID).
+ - When a client terminates (crash or kill), the Binder triggers this callback. A dedicated thread is spawned to perform cleanup under the API lock, without blocking the Binder thread.
+- if no other entry exists for that PID, then `all logical channels still open by that application are closed automatically`.
+ - When SE HAL service is stopped, all remaining open channels are closed and registered callers are released.
+
+

@@ -12,12 +12,16 @@ cc_binary {
 
     local_include_dirs: [
         "se-thales",
+        // Uncomment to use legacy library on libse-thales, and comment "se-thales" line
+//        "se-thales-legacy",        
     ],
 
     shared_libs: [
         "libbinder_ndk",
         "android.hardware.secure_element-V1-ndk",
         "android.hardware.secure_element.thales.libse-thales",
+        // Using libse-thales instead of libse-thales only if -DLEGACY cflags is present
+        "android.hardware.secure_element.thales.libse-thales-legacy",        
         "libbase",
         "libcutils",
         "libhardware",
@@ -27,6 +31,8 @@ cc_binary {
 
     cflags: [
         "-DANDROID",
+// Uncomment LEGACY flag to use legacy library on libse-thales 
+//        "-DLEGACY", 
         "-DENABLE_LOGGING=1",
         "-DENABLE_DEBUG=1",
         "-DMULTI_THREADING=0",

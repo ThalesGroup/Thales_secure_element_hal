@@ -10,7 +10,7 @@ option(ENABLE_LOGGING "Enable system logging" ON)
 option(ENABLE_DEBUG "Enable debug messages" ON)
 option(ENABLE_GCOV "Enable GCC coverage support" OFF)
 option(BUILD_TOOLS "Build thales-se-tool executable" OFF)
-option(BUILD_TESTS "Build unit tests" OFF)
+option(BUILD_TESTS "Build unit tests" ON)
 
 if(LEGACY)
 option(IRQ_MODE "Enable interruption IRQ mode" OFF)
@@ -58,6 +58,15 @@ include(GNUInstallDirs)
 # Subdirectories
 add_subdirectory(libse-thales/build)
 
+
+
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(libse-thales_tests/build)
+    add_subdirectory(tests/unitary_tests/build)
+endif()
+
+
 # pkg-config file
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/libse-thales/libse-thales.pc.in
@@ -82,3 +91,13 @@ message(STATUS "")
 message(STATUS "build tools:            ${BUILD_TOOLS}")
 message(STATUS "build tests:            ${BUILD_TESTS}")
 message(STATUS "")
+
+add_custom_target(clean_all
+    DEPENDS clean_lib clean_tests clean_hal_tests
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/CMakeFiles
+    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_BINARY_DIR}/CMakeCache.txt
+    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_BINARY_DIR}/cmake_install.cmake
+    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_BINARY_DIR}/Makefile
+    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_BINARY_DIR}/@ONLY
+    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_BINARY_DIR}/CTestTestfile.cmake
+)
