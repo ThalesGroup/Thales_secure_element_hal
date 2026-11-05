@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright ©2017-2026 Thales All rights Reserved.
+ * Copyright ©2017-2026 Thales. All rights Reserved.
  *
  * This copy is licensed under the Apache License, Version 2.0 (the "License");
  * You may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
  * $Revision$
  * $Date$
  *
- * libse-thales to dialog with device T=1 protocol.
+ * libse-thales to dialog with device T=1 protocol over SPI.
  *
  * This library is not thread safe on same context.
  */
@@ -29,19 +29,18 @@
 extern "C" {
 #endif
 
-#define LIBSE_THALES_MAJOR_VERSION 3
-#define LIBSE_THALES_MINOR_VERSION 0
-#define LIBSE_THALES_PATCH_VERSION 0
+#include "libse-thales_version.h"
 
-#ifdef I3C
-#define LIBSE_THALES_VARIANT_VERSION 1
-#else
-#define LIBSE_THALES_VARIANT_VERSION 0
-#endif
+#define MUTEX_LOCK_TIMEOUT 5 //timeout for mutex locking
+
+#undef LOG_TAG
+#define LOG_TAG "THALES_GP_LIBSE"
 
 #define FREQUENCY 5000000 //5MHz by default
 #define FREQUENCY_MAX 20000000 //20MHz
 #define FREQUENCY_MIN 1000000 //1MHz
+
+#define DEFAULT_DEVICE_NODE "/dev/node"
 
 /**
  * library user context - reads the config and system
@@ -61,14 +60,14 @@ typedef void thalesEse_log_fn (struct thalesEse_ctx *ctx, const char *s);
 
 /********************************* Core *************************************/
 
-/** Create se-tha library context.
+/** Create se-thales library context.
  *
- * This fills in the default values. Device node for eSE Thales is "@c /dev/node".
+ * This fills in the default values. Device node for eSE GTO is "@c /dev/node".
  *
  * Use environment variable SE_THA_LOG to alter default log level globally.
  * SE_THA_LOG=n with n from 0 to 4, or choice of SE_THA_LOG to err, info, debug.
  *
- * @returns a new se-tha library context
+ * @returns a new se-thales library context
  */
 int thalesEse_new(struct thalesEse_ctx **ctx);
 
@@ -98,7 +97,7 @@ void thalesEse_get_version(char* version, size_t size);
 
 /** Returns current log level.
  *
- * @param ctx: se-tha library context
+ * @param ctx: se-thales library context
  *
  * @returns the current logging level
  **/
@@ -107,7 +106,7 @@ int thalesEse_get_log_level(struct thalesEse_ctx *ctx);
 /**
  * Set the current logging level.
  *
- * @param ctx   se-tha library context
+ * @param ctx   se-thales library context
  * @param level the new logging level
  *
  * @c level controls which messages are logged:
@@ -124,7 +123,7 @@ void thalesEse_set_log_level(struct thalesEse_ctx *ctx, int level);
  * Use this function if you want to chain log entries and replace current
  * function by yours.
  *
- * @param ctx se-tha library context.
+ * @param ctx se-thales library context.
  *
  * @return current function for log string.
  */
@@ -132,21 +131,16 @@ thalesEse_log_fn *thalesEse_get_log_fn(struct thalesEse_ctx *ctx);
 
 /** Set function callback for log entries.
  *
- * @param ctx se-tha library context.
+ * @param ctx se-thales library context.
  * @param fn Function to dump nul terminated string.
  */
 void thalesEse_set_log_fn(struct thalesEse_ctx *ctx, thalesEse_log_fn *fn);
 
-/** Get userdata in the library context.
- *
- * @param ctx      se-tha library context
- * @return current userdata data pointer
- **/
 void *thalesEse_get_userdata(struct thalesEse_ctx *ctx);
 
 /** Store custom userdata in the library context.
  *
- * @param ctx      se-tha library context
+ * @param ctx      se-thales library context
  * @param userdata data pointer
  **/
 void thalesEse_set_userdata(struct thalesEse_ctx *ctx, void *userdata);
@@ -158,24 +152,24 @@ void thalesEse_set_userdata(struct thalesEse_ctx *ctx, void *userdata);
  * Returned string must not be modified. Copy returned string if you need to
  * use it later.
  *
- * @param ctx se-tha library context.
+ * @param ctx se-thales library context.
  *
  * @returns nul terminated string.
  */
-const char *thalesEse_get_devnode(struct thalesEse_ctx *ctx);
+const char *thalesEse_get_devNode(struct thalesEse_ctx *ctx);
 
 /** Set device node used for eSE.
  *
- * @c devnode is copied, you can use a volatile string.
+ * @c devNode is copied se-thales library. You can use a volatile string.
  *
- * @param ctx    se-tha library context.
- * @param devnode full path to device node.
+ * @param ctx    se-thales library context.
+ * @param devNode full path to device node.
  */
-void thalesEse_set_devnode(struct thalesEse_ctx *ctx, const char *devnode);
+void thalesEse_set_devnode(struct thalesEse_ctx *ctx, const char *devNode);
 
 /** Set frequency in Hz.
  *
- * @param ctx    se-tha library context.
+ * @param ctx se-thales library context.
  * @param frequency frequency in Hz.
  */
 void thalesEse_set_frequency(struct thalesEse_ctx *ctx, int frequency);
@@ -183,9 +177,9 @@ void thalesEse_set_frequency(struct thalesEse_ctx *ctx, int frequency);
 
 /****************************** APDU protocol *******************************/
 
-/** Send NextGen RESET command to Secure Element.
+/** Send reset command to Secure Element.
  *
- * @param ctx se-tha library context
+ * @param ctx se-thales library context
  *
  * @c errno is set on error.
  *
@@ -193,9 +187,9 @@ void thalesEse_set_frequency(struct thalesEse_ctx *ctx, int frequency);
  */
 int thalesEse_reset(struct thalesEse_ctx *ctx);
 
-/** Send NextGen CIP command to Secure Element and return ATR bytes.
+/** Send cip command to Secure Element and return ATR bytes.
  *
- * @param ctx se-tha library context
+ * @param ctx se-thales library context
  * @param atr byte buffer to receive ATR content
  * @param r   length of ATR byte buffer.
  *
@@ -203,14 +197,15 @@ int thalesEse_reset(struct thalesEse_ctx *ctx);
  *
  * @returns number of bytes in @c atr buffer or -1 on error.
  */
-int thalesEse_cip(struct thalesEse_ctx *ctx, void *atr, size_t r);
+int thalesEse_cip
+(struct thalesEse_ctx *ctx, void *atr, size_t r);
 
 /** Transmit APDU to Secure Element
  *
  * If needed to comply with request from command, multiple ISO7816 Get
  * Response can be emitted to collect the full response.
  *
- * @param ctx  se-tha library context
+ * @param ctx  se-thales library context
  * @param apdu APDU command to send
  * @param n    length of APDU command
  * @param resp Response buffer
@@ -221,7 +216,10 @@ int thalesEse_cip(struct thalesEse_ctx *ctx, void *atr, size_t r);
  * @returns number of bytes filled in @c resp buffer. -1 on error.
  *
  * @resp buffer last two bytes are SW1 and SW2 respectively. Response length
- * will always be at least 2 bytes.
+ * will always be at least 2 bytes. Maximum response size will be 257 bytes.
+ *
+ * Slave timeout is used waiting for APDU response. Each Extension Time packet
+ * will restart response timeout.
  */
 int thalesEse_apdu_transmit(struct thalesEse_ctx *ctx, const void *apdu, int n, void *resp, int r);
 

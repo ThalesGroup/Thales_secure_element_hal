@@ -71,8 +71,10 @@ const std::string propertySEHalLock_ = "persist.vendor.sehal.lock";
 const std::string propertySEHalLockDuration_ = "persist.vendor.sehal.lock_duration";
 const std::string propertySEHalLockUID_ = "persist.vendor.sehal.lock_uid";
 
+const uint8_t defaultLockDuration_ = 5; // 5 seconds
+
 // Using Mutex to protect SecureElement API call & to synchronize notification thread execution
-std::mutex mutexApi_; // to protect call to public API 
+std::mutex mutexApi_; // to protect call to public API
 std::mutex mutexNotifyThread_; // to prevent multiple thread in // for sending notification
 
 //////////////////////////////////////
@@ -83,7 +85,7 @@ class SecureElementApiLockGuard
         std::lock_guard<std::mutex> lock_;
 
     public:
-        SecureElementApiLockGuard( std::mutex& mutex) 
+        SecureElementApiLockGuard( std::mutex& mutex)
             : lock_(mutex)
         {
             ALOGD("SecureElement: SecureElement API locked");
@@ -106,7 +108,7 @@ class NotificationThreadLockGuard
         std::lock_guard<std::mutex> lock_;
 
     public:
-        NotificationThreadLockGuard( std::mutex& mutex) 
+        NotificationThreadLockGuard( std::mutex& mutex)
             : lock_(mutex)
         {
             ALOGD("SecureElement: notification thread locked");
@@ -123,7 +125,7 @@ class NotificationThreadLockGuard
 
 
 
-uint32_t SecureElement::lastIdValue_ = 0; // Initial value 
+uint32_t SecureElement::lastIdValue_ = 0; // Initial value
 
 SecureElement::SecureElement(const char* ese_name)
     :callerDeathRecipient_(AIBinder_DeathRecipient_new(onCallerDied)) {
@@ -135,7 +137,7 @@ SecureElement::SecureElement(const char* ese_name)
 
     start_time = duration_cast<std::chrono::seconds>( android::base::boot_clock::now().time_since_epoch()).count();
 
-    ALOGI("SecureElement:%s -- end", __func__);    
+    ALOGI("SecureElement:%s -- end", __func__);
 }
 
 SecureElement::~SecureElement()
@@ -144,7 +146,7 @@ SecureElement::~SecureElement()
 
     ALOGD("SecureElement:%s Cleanup resources ...", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
-    
+
     // Close all opened channel
     if( !channelOpened_.empty() )
     {
@@ -167,7 +169,7 @@ SecureElement::~SecureElement()
                 ALOGW("SecureElement:%s Unable to Channel #%d", __func__, channelNumber);
                 it ++;
             }
-        }        
+        }
     }
 
     ALOGD("SecureElement:%s cleanup caller list...", __func__);
@@ -199,7 +201,7 @@ void SecureElement::onCallerDied(void* ptrCookie)
                 ALOGD("SecureElement:%s Starting dedicated thread to cleanup resource of dead application (clientId #%u)", __func__, callerId);
                 const SecureElementApiLockGuard lockApi(mutexApi_);
                 ptrRefSecureElement->cleanupCaller(callerId, callerPid, callerUid);
-            }).detach();    
+            }).detach();
         }
         else
             ALOGW("SecureElement:%s do nothing because ptrRefSecureElement is null", __func__);
@@ -211,7 +213,7 @@ void SecureElement::onCallerDied(void* ptrCookie)
 void SecureElement::cleanupCaller(uint32_t callerId, pid_t callerPid, uid_t callerUid)
 {
     ALOGD("SecureElement:%s start", __func__);
-    
+
     ALOGI("SecureElement:%s searching data for callerId #%u ...", __func__, callerId);
     for( auto it = callers_.begin(); it != callers_.end(); )
     {
@@ -233,7 +235,7 @@ void SecureElement::cleanupCaller(uint32_t callerId, pid_t callerPid, uid_t call
     {
         if( it->deathCookie_->pid_ == callerPid)
         {
-            ALOGV("SecureElement:%s entry found with callerId #%u for PID:%d", __func__, it->deathCookie_->callerId_);
+            ALOGV("SecureElement:%s entry found with callerId #%u for PID:%d", __func__, it->deathCookie_->callerId_, callerPid);
             countRemainingEntry ++;
         }
     }
@@ -271,7 +273,7 @@ void SecureElement::cleanupCaller(uint32_t callerId, pid_t callerPid, uid_t call
                 }
             }
             else
-                it ++;            
+                it ++;
         }
     }
     else
@@ -337,7 +339,7 @@ bool SecureElement::isHalLocked(){
 
     uid_t uid = AIBinder_getCallingUid();
     ALOGD("SecureElement:%s caller UID : %d", __func__, uid);
-    
+
     const char* ptrSid = AIBinder_getCallingSid();
     ALOGD("SecureElement:%s caller SID : %s", __func__, ptrSid ? ptrSid : "(null)");
 
@@ -363,7 +365,7 @@ bool SecureElement::isHalLocked(){
         if( lock.value() == 1 && lockDuration.value() > 0)
         {
             int64_t now = duration_cast<std::chrono::seconds>(android::base::boot_clock::now().time_since_epoch()).count();
-            if (now >= start_time + lockDuration.value()) 
+            if (now >= start_time + lockDuration.value())
             {
                 ALOGD("SecureElement:%s SE HAL access not locked (lock duration exceeded)", __func__);
                 accessLocked = false;
@@ -372,7 +374,7 @@ bool SecureElement::isHalLocked(){
             {
                 ALOGI("SecureElement:%s SE HAL access locked (lock duration not yet exceeded)", __func__);
             }
-        }            
+        }
         else
         {
             ALOGD("SecureElement:%s SE HAL access not locked (lock deactivated by flag)", __func__);
@@ -431,7 +433,7 @@ send:
     resp_len = thalesEse_apdu_transmit(ctx, cmdApdu.data(), cmdApdu.size(), respApdu.data(), respApdu.size());
     ALOGD("SecureElement:%s selectApdu resp_len = %d", __func__,resp_len);
 
-    if (resp_len < 0 || resp_len > respApdu.size())
+    if (resp_len < 0 || static_cast<size_t>(resp_len) > respApdu.size())
     {
         ALOGE("SecureElement:%s selectApdu resp_len = %d", __func__,resp_len);
         if (deinitializeSE() != SUCCESS) {
@@ -447,20 +449,15 @@ send:
         dump_bytes("RESP: ", respApdu.data(), respApdu.size());
 
         if (respApdu[respApdu.size() - 2] == 0x90 || respApdu[respApdu.size() - 2] == 0x62 || respApdu[respApdu.size() - 2] == 0x63) {
-            response.resize(getResponseOffset + respApdu.size());
-            for (size_t i = 0; i < respApdu.size(); i++) {
-                response.push_back(respApdu.at(i));
-            }
+            response.insert(response.end(), respApdu.begin(), respApdu.end());
+
             mSecureElementStatus = SUCCESS;
         }
         else if ( respApdu[respApdu.size() - 2] == 0x61 ||  respApdu[respApdu.size() - 2] == 0x6C)
         {
-            response.resize(getResponseOffset + respApdu.size() - 2);
-            for (size_t i = 0; i < (respApdu.size()-2); i++) {
-                response.push_back(respApdu.at(i));
-            }
+            response.insert(response.end(), respApdu.begin(), respApdu.end()-2);
 
-            getResponseOffset += (respApdu.size() - 2);
+            getResponseOffset += (respApdu.size());
             _getResponse[4] = respApdu[respApdu.size() - 1];
             _getResponse[0] = cmdApdu[0];
 
@@ -549,10 +546,10 @@ int SecureElement::initializeSE() {
 
             ALOGD("SecureElement:%s Automatic lock configuration ...", __func__);
 
-            if( lockDuration.value() < 5)
+            if( lockDuration.value() < defaultLockDuration_)
             {
-                ALOGD("SecureElement:%s Set property[%s]=to '5'", __func__, propertySEHalLockDuration_.c_str());
-                android::base::SetProperty( propertySEHalLockDuration_, "5");
+                ALOGD("SecureElement:%s Set property[%s]=to '%d'", __func__, propertySEHalLockDuration_.c_str(), defaultLockDuration_);
+                android::base::SetProperty( propertySEHalLockDuration_, std::to_string(defaultLockDuration_));
             }
 
             if( lock.value() != 1 )
@@ -579,7 +576,7 @@ int SecureElement::initializeSE() {
         ALOGD("SecureElement:%s -- end", __func__);
         return EXIT_FAILURE;
     }
-    
+
 #ifndef LEGACY
     if (cipRequest() < 0) {
 #else
@@ -597,20 +594,20 @@ int SecureElement::initializeSE() {
     return EXIT_SUCCESS;
 }
 
-ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>& clientCallback) 
+ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>& clientCallback)
 {
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
-    
-    if (clientCallback == nullptr) 
+
+    if (clientCallback == nullptr)
     {
         ALOGE("SecureElement:%s clientCallback == nullptr", __func__);
         return ScopedAStatus::fromExceptionCode(EX_NULL_POINTER);
     }
 
     //////////////////////////////////
-    // Register application caller 
-    
+    // Register application caller
+
     pid_t callerPid = AIBinder_getCallingPid();
     uid_t callerUid = AIBinder_getCallingUid();
     ALOGD("SecureElement:%s Caller: PID=%d, UID=%d", __func__, callerPid, callerUid);
@@ -660,7 +657,7 @@ ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>&
         LOG(INFO) << "SecureElement:" << __func__ << " Called by Secure Element (OMAPI) -> saving callback ";
         clientCallback_ = clientCallback;
         lastSecureElementStatusSend_.reset();
-    }    
+    }
 
     if(!checkSeUp)
     {
@@ -672,8 +669,8 @@ ScopedAStatus SecureElement::init(const std::shared_ptr<ISecureElementCallback>&
             ALOGD("SecureElement:%s initializeSE Success", __func__);
             notify(true, "SE Initialized");
         }
-    } 
-    else 
+    }
+    else
     {
         // Already initialized, check if client just registered
         ALOGD("SecureElement:%s already initialized", __func__);
@@ -700,10 +697,10 @@ void SecureElement::registerCaller(const std::shared_ptr<ISecureElementCallback>
         ALOGD("SecureElement:%s PID=%d have already %d registration(s)", __func__, callerPid, static_cast<int> (counter));
 
     ++lastIdValue_;
-    
+
     uint32_t callerId = lastIdValue_;
     CallerInfo callerInfo;
-    callerInfo.binder_ = clientCallback_->asBinder();
+    callerInfo.binder_ = clientCallback->asBinder();
     callerInfo.clientCallback_ = clientCallback;
     callerInfo.deathCookie_ = std::make_unique<DeathCookie>(DeathCookie{callerId, this, callerPid, callerUid});
 
@@ -713,7 +710,7 @@ void SecureElement::registerCaller(const std::shared_ptr<ISecureElementCallback>
         LOG(DEBUG) << "SecureElement:" << __func__ << " AIBinder_linkToDeath() done successfully";
 
         // Add new called information in list
-        ALOGD("SecureElement:%s registering PID %d (callerId #%u)...", __func__, callerPid, callerId);   
+        ALOGD("SecureElement:%s registering PID %d (callerId #%u)...", __func__, callerPid, callerId);
         callers_.push_back(std::move(callerInfo));
     }
     else
@@ -749,7 +746,7 @@ ScopedAStatus SecureElement::transmit(const std::vector<uint8_t>& data, std::vec
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
 
-    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked())
     {
         ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
@@ -797,13 +794,13 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
 
     int mSecureElementStatus = IOERROR;
 
-    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked())
     {
         ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
         return ScopedAStatus::fromServiceSpecificErrorWithMessage(IOERROR, "eSE HAL access locked for SE Update");
-    }  
-    
+    }
+
     if (!checkSeUp) {
         if (initializeSE() != EXIT_SUCCESS) {
             ALOGE("SecureElement:%s: Failed to re-initialise the eSE HAL", __func__);
@@ -823,7 +820,7 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
     resp_len = thalesEse_apdu_transmit(ctx, _openChannel, sizeof(_openChannel), respApdu.data(), respApdu.size());
     ALOGD("SecureElement:%s Manage channel resp_len = %d", __func__,resp_len);
 
-    if (resp_len >= 2 && resp_len <= respApdu.size()){
+    if (resp_len >= 2 && static_cast<size_t>(resp_len) <= respApdu.size()){
         //no overflow, OK
         respApdu.resize(resp_len);
         dump_bytes("RESP: ", respApdu.data(), respApdu.size());
@@ -869,7 +866,7 @@ ScopedAStatus SecureElement::openLogicalChannel(const std::vector<uint8_t>& aid,
             .selectResponse = response,
         };
 
-        channelOpened_.insert(std::pair<int8_t, ChannelInfo>( static_cast<int8_t>(channelNumber), 
+        channelOpened_.insert(std::pair<int8_t, ChannelInfo>( static_cast<int8_t>(channelNumber),
             { AIBinder_getCallingPid(), AIBinder_getCallingUid(), aid} ));
     }
     else
@@ -886,7 +883,7 @@ ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, i
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
 
-    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked())
     {
         ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
@@ -923,8 +920,8 @@ ScopedAStatus SecureElement::openBasicChannel(const std::vector<uint8_t>& aid, i
 
         *aidl_return = response;
 
-        channelOpened_.insert(std::pair<int8_t, ChannelInfo>( BASIC_CHANNEL, 
-            { AIBinder_getCallingPid(), AIBinder_getCallingUid(), aid} ));  
+        channelOpened_.insert(std::pair<int8_t, ChannelInfo>( BASIC_CHANNEL,
+            { AIBinder_getCallingPid(), AIBinder_getCallingUid(), aid} ));
     }
     else
     {
@@ -947,7 +944,7 @@ ScopedAStatus SecureElement::closeChannel(int8_t channelNumber) {
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
 
-    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked())
     {
         ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
@@ -975,11 +972,6 @@ int SecureElement::internalCloseChannel(int8_t channelNumber, bool searchAndRemo
 
 
     int closeChannelStatus = FAILED;
-
-    uint8_t *apdu = nullptr; //65536
-    int apdu_len = 10;
-    uint8_t *resp = nullptr;
-    int resp_len = 0;
 
     if (channelNumber < 0) {
         ALOGE("SecureElement:%s Channel not supported", __func__);
@@ -1026,7 +1018,7 @@ int SecureElement::internalCloseChannel(int8_t channelNumber, bool searchAndRemo
             ALOGD("SecureElement:%s Erasing channel #%d from monitoring ...", __func__, channelNumber);
             channelOpened_.erase(mapEntry);
             ALOGD("SecureElement:%s channel #%d erased from monitoring", __func__, channelNumber);
-        }   
+        }
         else
             ALOGW("SecureElement:%s Unable to erase channel #%d from monitoring (entry not found)!", __func__, channelNumber);
     }
@@ -1037,10 +1029,10 @@ int SecureElement::internalCloseChannel(int8_t channelNumber, bool searchAndRemo
             ALOGE("SecureElement:%s deinitializeSE Failed", __func__);
         }
     }
-    ALOGD("SecureElement:%s -- end", __func__);    
-    
+    ALOGD("SecureElement:%s -- end", __func__);
+
     return closeChannelStatus;
-}   
+}
 
 void
 SecureElement::notify(bool state, const char *message)
@@ -1057,7 +1049,7 @@ SecureElement::notify(bool state, const char *message)
             ALOGD("SecureElement:%s manage asynchronous client callback ...", __func__);
             auto callback = clientCallback_;
 
-            std::thread([callback, state, message]() 
+            std::thread([callback, state, message]()
             {
                 ALOGD("SecureElement: Notification thread started");
 
@@ -1304,7 +1296,7 @@ ScopedAStatus SecureElement::reset() {
     ALOGD("SecureElement:%s -- begin", __func__);
     const SecureElementApiLockGuard lockApi(mutexApi_);
 
-    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked()) 
+    if( lockActivated_.has_value() && lockActivated_.value() && isHalLocked())
     {
         ALOGW("SecureElement:%s SE HAL access locked --> Returning IOERROR", __func__);
         ALOGD("SecureElement:%s -- end", __func__);
@@ -1325,7 +1317,7 @@ ScopedAStatus SecureElement::reset() {
 
     ALOGD("SecureElement:%s --end", __func__);
 
-    if(status != SUCCESS) 
+    if(status != SUCCESS)
         return ScopedAStatus::fromServiceSpecificError(status);
     else
         return ScopedAStatus::ok();
@@ -1334,7 +1326,7 @@ ScopedAStatus SecureElement::reset() {
 std::optional<int> SecureElement::getPropertyValue(const std::string& propertyName)
 {
     std::optional<int> propertyValue;
-    
+
     std::string propertyValueAsString = android::base::GetProperty(propertyName, "");
     if( propertyValueAsString.empty())
     {

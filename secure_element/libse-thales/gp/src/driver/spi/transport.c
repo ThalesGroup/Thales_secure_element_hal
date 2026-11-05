@@ -20,7 +20,6 @@
  * eSE Gemalto kernel driver transport.
  *
  */
-#ifndef I3C
 
 #include <stdlib.h>
 #include <string.h>
@@ -199,4 +198,3 @@ block_recv(struct t1_state *t1, void *block, size_t n)
     }
     return max + 1;
 }
-#endif //not I3C

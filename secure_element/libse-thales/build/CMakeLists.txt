@@ -1,18 +1,28 @@
+cmake_minimum_required(VERSION 3.10)
 
+project(libse_thales)
+
+# Configuration options
+option(LEGACY "Use legacy middleware(gp by default)" OFF)
+option(MULTI_THREADING "Use mutex for multi-client (set by default)" ON)
+option(IRQ_MODE "Enable interruption IRQ mode" OFF)
+option(ENABLE_LOGGING "Enable system logging" ON)
+option(ENABLE_DEBUG "Enable debug messages" ON)
+option(ENABLE_GCOV "Enable GCC coverage support" OFF)
 
 
 if(LEGACY)
     project(libse-thales VERSION 1.9.0 LANGUAGES C CXX)
     configure_file(
-        "${CMAKE_SOURCE_DIR}/libse-thales/build/libse-thales_version.h.in"
-        "${CMAKE_SOURCE_DIR}/libse-thales/legacy/se-thales/libse-thales_version.h"
+        "${CMAKE_SOURCE_DIR}/libse-thales_version.h.in"
+        "${CMAKE_SOURCE_DIR}/../legacy/se-thales/libse-thales_version.h"
         @ONLY
     )
 else()
     project(libse-thales VERSION 2.1.0 LANGUAGES C CXX)
     configure_file(
-        "${CMAKE_SOURCE_DIR}/libse-thales/build/libse-thales_version.h.in"
-        "${CMAKE_SOURCE_DIR}/libse-thales/gp/se-thales/libse-thales_version.h"
+        "${CMAKE_SOURCE_DIR}/libse-thales_version.h.in"
+        "${CMAKE_SOURCE_DIR}/../gp/se-thales/libse-thales_version.h"
         @ONLY
     )
 endif()
@@ -20,35 +30,23 @@ endif()
 # Library sources
 if(LEGACY)
     set(LIBSE_THALES_SOURCES
-        ${CMAKE_SOURCE_DIR}/libse-thales/legacy/src/api/libse-thales.c
-        ${CMAKE_SOURCE_DIR}/libse-thales/legacy/src/core/checksum.c
-        ${CMAKE_SOURCE_DIR}/libse-thales/legacy/src/core/iso7816_t1.c
-        ${CMAKE_SOURCE_DIR}/libse-thales/legacy/src/core/log.c
-        ${CMAKE_SOURCE_DIR}/libse-thales/legacy/src/driver/spi/transport.c
-        ${CMAKE_SOURCE_DIR}/libse-thales/legacy/src/driver/spi/spi.c
+        ${CMAKE_SOURCE_DIR}/../legacy/src/api/libse-thales.c
+        ${CMAKE_SOURCE_DIR}/../legacy/src/core/checksum.c
+        ${CMAKE_SOURCE_DIR}/../legacy/src/core/iso7816_t1.c
+        ${CMAKE_SOURCE_DIR}/../legacy/src/core/log.c
+        ${CMAKE_SOURCE_DIR}/../legacy/src/driver/spi/transport.c
+        ${CMAKE_SOURCE_DIR}/../legacy/src/driver/spi/spi.c
     )
 else()
-    if(I3C)
-        set(LIBSE_THALES_SOURCES
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/api/libse-thales.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/core/checksum.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/core/gpio_core.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/core/iso7816_t1.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/core/log.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/driver/spi/spi.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/driver/spi/transport.c
-        )
-    else()
-        set(LIBSE_THALES_SOURCES
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/api/libse-thales.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/core/checksum.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/core/gpio_core.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/core/iso7816_t1.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/core/log.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/driver/spi/spi.c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/src/driver/spi/transport.c
-        )
-    endif()
+    set(LIBSE_THALES_SOURCES
+        ${CMAKE_SOURCE_DIR}/../gp/src/api/libse-thales.c
+        ${CMAKE_SOURCE_DIR}/../gp/src/core/checksum.c
+        ${CMAKE_SOURCE_DIR}/../gp/src/core/gpio_core.c
+        ${CMAKE_SOURCE_DIR}/../gp/src/core/iso7816_t1.c
+        ${CMAKE_SOURCE_DIR}/../gp/src/core/log.c
+        ${CMAKE_SOURCE_DIR}/../gp/src/driver/spi/spi.c
+        ${CMAKE_SOURCE_DIR}/../gp/src/driver/spi/transport.c
+    )
 endif()
 
 # Create shared library
@@ -70,30 +68,28 @@ if(LEGACY)
     # Include directories
     target_include_directories(se-thales
         PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/libse-thales/legacy/se-thales>
+            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/../legacy/se-thales>
             $<INSTALL_INTERFACE:include/libse-thales>
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/libse-thales/legacy/include/core
-            ${CMAKE_SOURCE_DIR}/libse-thales/legacy/include/driver
-            ${CMAKE_SOURCE_DIR}/libse-thales/legacy/include/driver/spi
-            ${CMAKE_SOURCE_DIR}/libse-thales/legacy/include/driver/i3c
-            ${CMAKE_SOURCE_DIR}/libse-thales/legacy/include/linux
-            ${CMAKE_SOURCE_DIR}/libse-thales/legacy
+            ${CMAKE_SOURCE_DIR}/../legacy/include/core
+            ${CMAKE_SOURCE_DIR}/../legacy/include/driver
+            ${CMAKE_SOURCE_DIR}/../legacy/include/driver/spi
+            ${CMAKE_SOURCE_DIR}/../legacy/include/linux
+            ${CMAKE_SOURCE_DIR}/../legacy
             ${CMAKE_BINARY_DIR}
     )
 else()
     # Include directories
     target_include_directories(se-thales
         PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/libse-thales/gp/se-thales>
+            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/../gp/se-thales>
             $<INSTALL_INTERFACE:include/libse-thales>
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/include/core
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/include/driver
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/include/driver/spi
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/include/driver/i3c
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp/include/linux
-            ${CMAKE_SOURCE_DIR}/libse-thales/gp
+            ${CMAKE_SOURCE_DIR}/../gp/include/core
+            ${CMAKE_SOURCE_DIR}/../gp/include/driver
+            ${CMAKE_SOURCE_DIR}/../gp/include/driver/spi
+            ${CMAKE_SOURCE_DIR}/../gp/include/linux
+            ${CMAKE_SOURCE_DIR}/../gp
             ${CMAKE_BINARY_DIR}
     )
 endif()
@@ -147,8 +143,8 @@ install(FILES
 
 # pkg-config file
 configure_file(
-    ${CMAKE_SOURCE_DIR}/libse-thales/libse-thales.pc.in
-    ${CMAKE_SOURCE_DIR}/libse-thales/libse-thales.pc
+    ${CMAKE_SOURCE_DIR}/../libse-thales.pc.in
+    ${CMAKE_SOURCE_DIR}/../libse-thales.pc
 )
 
 # Print configuration summary
@@ -160,7 +156,6 @@ message(STATUS "logging:                ${ENABLE_LOGGING}")
 message(STATUS "legacy:                 ${LEGACY}")
 message(STATUS "multi-client:           ${MULTI_THREADING}")
 message(STATUS "debug:                  ${ENABLE_DEBUG}")
-message(STATUS "i3c:                    ${I3C}")
 message(STATUS "irq:                    ${IRQ_MODE}")
 message(STATUS "gcov coverage:          ${ENABLE_GCOV}")
 message(STATUS "se device node:         ${DEVNODE}")

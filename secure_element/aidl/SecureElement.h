@@ -73,7 +73,7 @@ struct ChannelInfo
         pid_(pid), uid_(uid), aid_(aid){};
 
     // Application Owner
-    pid_t           pid_; 
+    pid_t           pid_;
     uid_t           uid_;
 
     // Empty if closed or not yet selected
@@ -112,7 +112,7 @@ struct SecureElement : public BnSecureElement {
     std::list<CallerInfo>     callers_;
 
     // allocated on constructor / free automatically
-    DeathRecipientPtr               callerDeathRecipient_; // shared with all application caller; 
+    DeathRecipientPtr               callerDeathRecipient_; // shared with all application caller;
     static void onCallerDied(void* ptrCookie);
     void registerCaller(const std::shared_ptr<ISecureElementCallback>& clientCallback, pid_t callerPid, uid_t callerUid);
     void cleanupCaller(uint32_t callerId, pid_t callerPid, uid_t callerUid);
@@ -127,7 +127,7 @@ struct SecureElement : public BnSecureElement {
     int resetSE();
 #ifndef LEGACY
     int cipRequest();
-#endif // LEGACY    
+#endif // LEGACY
     int openConfigFile(int verbose);
     int parseConfigFile(FILE *f, int verbose);
     void notify(bool state, const char *message);
